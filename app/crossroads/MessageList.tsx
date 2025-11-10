@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import supabase from "./supabaseClient";
+import { supabase } from "./supabaseClient"; // <-- named import
 
 type Message = {
   id: string;
   content: string;
   username: string | null;
   channel: string | null;
-  created_at: string; // ISO string from Postgres
+  created_at: string;
 };
 
 export default function MessageList() {
@@ -18,7 +18,6 @@ export default function MessageList() {
   useEffect(() => {
     let isMounted = true;
 
-    // initial load
     const load = async () => {
       const { data, error } = await supabase
         .from<Message>("messages")
@@ -40,7 +39,6 @@ export default function MessageList() {
 
     load();
 
-    // realtime inserts
     const ch = supabase
       .channel("public:messages")
       .on(
@@ -53,17 +51,10 @@ export default function MessageList() {
         },
         (payload) => {
           const m = payload.new as Message;
-          // append only if we’re on the same channel
-          if (m?.channel === "global") {
-            setMessages((prev) => [...prev, m]);
-          }
+          if (m?.channel === "global") setMessages((prev) => [...prev, m]);
         }
       )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          // subscribed
-        }
-      });
+      .subscribe();
 
     return () => {
       isMounted = false;
@@ -71,36 +62,19 @@ export default function MessageList() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="text-sm text-zinc-500 px-3 py-2">
-        Loading messages…
-      </div>
-    );
-  }
-
-  if (!messages.length) {
-    return (
-      <div className="text-sm text-zinc-500 px-3 py-2">
-        No messages yet. Be the first to say something in Barrens chat.
-      </div>
-    );
-  }
+  if (loading) return <div className="text-sm text-zinc-500 px-3 py-2">Loading messages…</div>;
+  if (!messages.length)
+    return <div className="text-sm text-zinc-500 px-3 py-2">No messages yet. Be the first to speak.</div>;
 
   return (
     <div className="flex flex-col gap-2 px-3 py-2">
       {messages.map((m) => (
         <div key={m.id} className="text-sm leading-relaxed">
-          <span className="font-medium text-zinc-300">
-            {m.username ?? "anon"}
-          </span>
+          <span className="font-medium text-zinc-300">{m.username ?? "anon"}</span>
           <span className="text-zinc-500">: </span>
           <span className="text-zinc-100">{m.content}</span>
           <span className="ml-2 text-xs text-zinc-500">
-            {new Date(m.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
         </div>
       ))}
