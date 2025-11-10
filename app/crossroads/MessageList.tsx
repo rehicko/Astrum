@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "./supabaseClient"; // <- force named import
+import { supabase } from "./supabaseClient";
 
 type Message = {
   id: string;
@@ -20,7 +20,7 @@ export default function MessageList() {
 
     const load = async () => {
       const { data, error } = await supabase
-        .from<Message>("messages")
+        .from("messages") // <-- no generic; we'll cast below
         .select("*")
         .eq("channel", "global")
         .order("created_at", { ascending: true })
@@ -32,7 +32,7 @@ export default function MessageList() {
         console.error("load messages error:", error);
         setMessages([]);
       } else {
-        setMessages((data ?? []) as Message[]);
+        setMessages(((data ?? []) as unknown) as Message[]);
       }
       setLoading(false);
     };
