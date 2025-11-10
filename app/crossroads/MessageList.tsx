@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "./supabaseClient"; // <-- named import
+import { supabase } from "./supabaseClient"; // <- force named import
 
 type Message = {
   id: string;
