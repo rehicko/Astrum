@@ -1,47 +1,107 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "./supabaseClient";
+import supabase from "./supabaseClient";
+
+type Message = {
+  id: string;
+  content: string;
+  username: string | null;
+  channel: string | null;
+  created_at: string; // ISO string from Postgres
+};
 
 export default function MessageList() {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Load existing messages
+    let isMounted = true;
+
+    // initial load
     const load = async () => {
-      const { data } = await supabase
-        .from("messages")
+      const { data, error } = await supabase
+        .from<Message>("messages")
         .select("*")
-        .order("created_at", { ascending: true });
-      setMessages(data || []);
+        .eq("channel", "global")
+        .order("created_at", { ascending: true })
+        .limit(200);
+
+      if (!isMounted) return;
+
+      if (error) {
+        console.error("load messages error:", error);
+        setMessages([]);
+      } else {
+        setMessages((data ?? []) as Message[]);
+      }
+      setLoading(false);
     };
 
     load();
 
-    // 2. Subscribe to new messages
-    const channel = supabase
-      .channel("msg-listener")
+    // realtime inserts
+    const ch = supabase
+      .channel("public:messages")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: "channel=eq.global",
+        },
         (payload) => {
-          setMessages((current) => [...current, payload.new]);
+          const m = payload.new as Message;
+          // append only if we’re on the same channel
+          if (m?.channel === "global") {
+            setMessages((prev) => [...prev, m]);
+          }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          // subscribed
+        }
+      });
 
-    // Cleanup if component unmounts
     return () => {
-      supabase.removeChannel(channel);
+      isMounted = false;
+      supabase.removeChannel(ch);
     };
   }, []);
 
+  if (loading) {
+    return (
+      <div className="text-sm text-zinc-500 px-3 py-2">
+        Loading messages…
+      </div>
+    );
+  }
+
+  if (!messages.length) {
+    return (
+      <div className="text-sm text-zinc-500 px-3 py-2">
+        No messages yet. Be the first to say something in Barrens chat.
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-2 p-4 overflow-y-auto h-[70vh]">
-      {messages.map((msg) => (
-        <div key={msg.id} className="text-neutral-200">
-          <span className="font-bold text-emerald-400">{msg.username}: </span>
-          {msg.content}
+    <div className="flex flex-col gap-2 px-3 py-2">
+      {messages.map((m) => (
+        <div key={m.id} className="text-sm leading-relaxed">
+          <span className="font-medium text-zinc-300">
+            {m.username ?? "anon"}
+          </span>
+          <span className="text-zinc-500">: </span>
+          <span className="text-zinc-100">{m.content}</span>
+          <span className="ml-2 text-xs text-zinc-500">
+            {new Date(m.created_at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
         </div>
       ))}
     </div>
