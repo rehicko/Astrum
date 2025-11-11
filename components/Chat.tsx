@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+const supabase = createClient();
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
 import { ensureUniqueById } from "@/lib/dedupe";
