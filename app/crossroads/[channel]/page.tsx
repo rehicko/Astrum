@@ -1,14 +1,16 @@
-// app/crossroads/[channel]/page.tsx
 import Chat from "@/components/Chat";
 import { SUPPORTED_CHANNELS } from "@/lib/constants";
 
-type Props = { params: { channel: string } };
+// In Next 15, params is a Promise in server components.
+type Props = { params: Promise<{ channel: string }> };
 
-export default function ChannelPage({ params }: Props) {
-  const slug = (params.channel ?? "").toLowerCase();
+export default async function ChannelPage({ params }: Props) {
+  const { channel: raw } = await params; // <- await params
+  const slug = (raw ?? "").toLowerCase();
 
-  // Guard: if the slug isn’t one of our allowed channels, fall back to global
-  const channel = SUPPORTED_CHANNELS.includes(slug as any) ? slug : "global";
+  const channel = (SUPPORTED_CHANNELS as readonly string[]).includes(slug)
+    ? slug
+    : "global";
 
   return (
     <div className="flex flex-col h-full">
@@ -17,8 +19,6 @@ export default function ChannelPage({ params }: Props) {
           /crossroads/<span className="text-white font-medium">{channel}</span>
         </h1>
       </div>
-
-      {/* Chat for this channel */}
       <Chat channel={channel} />
     </div>
   );
