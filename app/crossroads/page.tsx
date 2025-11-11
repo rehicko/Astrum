@@ -1,14 +1,6 @@
-"use client";
+// app/crossroads/page.tsx
+import { redirect } from "next/navigation";
 
-import ChatLayout from "./ChatLayout";
-import MessageList from "./MessageList";
-import ChatMessageInput from "./ChatMessageInput";
-
-export default function CrossroadsPage() {
-  return (
-    <ChatLayout>
-      <MessageList />
-      <ChatMessageInput />
-    </ChatLayout>
-  );
+export default function CrossroadsIndex() {
+  redirect("/crossroads/global");
 }
