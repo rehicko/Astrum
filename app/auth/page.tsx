@@ -1,280 +1,175 @@
+// app/auth/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
-import { ensureProfile } from "@/lib/ensureProfile";
 
-type Mode = "signin" | "signup";
+type SessionUser = {
+  id: string;
+  email: string | null;
+};
 
 export default function AuthPage() {
-  const router = useRouter();
-  const params = useSearchParams();
   const supabase = createClient();
-
-  // URL can set ?mode=signup or ?mode=signin
-  const initialMode = (params.get("mode") as Mode) || "signin";
-  const [mode, setMode] = useState<Mode>(initialMode);
+  const router = useRouter();
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState(""); // only used for password flows
-  const [status, setStatus] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [usePassword, setUsePassword] = useState(false); // toggle between magic link and password
+  const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
 
-  // If already signed in, bounce to Global
+  // Load current session
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        await ensureProfile(supabase);
-        router.replace("/crossroads/global");
+      const { data, error } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (error) {
+        console.warn("getSession error:", error);
+        return;
+      }
+      if (data.session?.user) {
+        setUser({
+          id: data.session.user.id,
+          email: data.session.user.email ?? null,
+        });
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  const trimmedEmail = useMemo(() => email.trim(), [email]);
+    return () => {
+      mounted = false;
+    };
+  }, [supabase]);
 
-  async function handleOAuth(provider: "discord" | "google") {
-    try {
-      setLoading(true);
-      setStatus(null);
-      const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/crossroads/global`
-          : undefined;
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
 
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo },
-      });
-      if (error) setStatus(`Error: ${error.message}`);
-      // Supabase redirects on success
-    } finally {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      console.error("signIn error:", error);
+      setError(error.message);
       setLoading(false);
-    }
-  }
-
-  async function handleMagicLink() {
-    if (!trimmedEmail) {
-      setStatus("Enter your email first.");
       return;
     }
-    try {
-      setLoading(true);
-      setStatus("Sending magic link…");
-      const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/crossroads/global`
-          : undefined;
 
-      const { error } = await supabase.auth.signInWithOtp({
-        email: trimmedEmail,
-        options: { emailRedirectTo: redirectTo },
+    if (data.user) {
+      setUser({
+        id: data.user.id,
+        email: data.user.email ?? null,
       });
-      if (error) setStatus(`Error: ${error.message}`);
-      else setStatus("Check your inbox for the magic link.");
-    } finally {
-      setLoading(false);
+      setEmail("");
+      setPassword("");
+      // Go back to crossroads
+      router.push("/crossroads/global");
     }
-  }
 
-  async function handleSignInWithPassword() {
-    if (!trimmedEmail) return setStatus("Enter your email.");
-    if (!password) return setStatus("Enter your password.");
+    setLoading(false);
+  };
 
-    try {
-      setLoading(true);
-      setStatus("Signing in…");
-      const { error } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
-        password,
-      });
-      if (error) return setStatus(`Error: ${error.message}`);
+  const handleSignOut = async () => {
+    setLoading(true);
+    setError(null);
 
-      await ensureProfile(supabase);
-      router.replace("/crossroads/global");
-    } finally {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("signOut error:", error);
+      setError(error.message);
       setLoading(false);
+      return;
     }
-  }
 
-  async function handleSignUp() {
-    if (!trimmedEmail) return setStatus("Enter your email.");
-    if (!password) return setStatus("Create a password (min 6 chars).");
-
-    try {
-      setLoading(true);
-      setStatus("Creating your account…");
-      const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/crossroads/global`
-          : undefined;
-
-      const { error } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password,
-        options: { emailRedirectTo: redirectTo },
-      });
-
-      if (error) return setStatus(`Error: ${error.message}`);
-      setStatus(
-        "Account created. Check your email to confirm, then you'll be redirected."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+    setUser(null);
+    setLoading(false);
+  };
 
   return (
-    <div className="min-h-screen w-full grid place-items-center bg-black text-white">
-      <div className="w-full max-w-sm rounded-2xl border border-neutral-800 p-6">
-        <h1 className="text-2xl font-semibold">Sign in to Astrum</h1>
-        <p className="text-sm text-neutral-400 mb-4">Join the live feed.</p>
+    <div className="min-h-screen flex items-center justify-center bg-black text-white px-4">
+      <div className="w-full max-w-md border border-neutral-800 rounded-2xl p-6 bg-neutral-950">
+        <h1 className="text-xl font-semibold mb-4 text-center">
+          Astrum Account
+        </h1>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-4">
-          <button
-            className={`px-3 py-1 rounded-lg border ${
-              mode === "signin" ? "border-white" : "border-neutral-800"
-            }`}
-            onClick={() => setMode("signin")}
-          >
-            Sign in
-          </button>
-          <button
-            className={`px-3 py-1 rounded-lg border ${
-              mode === "signup" ? "border-white" : "border-neutral-800"
-            }`}
-            onClick={() => setMode("signup")}
-          >
-            Create account
-          </button>
-        </div>
-
-        {/* OAuth */}
-        <div className="space-y-3 mb-4">
-          <button
-            onClick={() => handleOAuth("discord")}
-            disabled={loading}
-            className="w-full px-4 py-2 rounded-xl border border-neutral-800 hover:bg-neutral-900 disabled:opacity-60"
-          >
-            Continue with Discord
-          </button>
-          <button
-            onClick={() => handleOAuth("google")}
-            disabled={loading}
-            className="w-full px-4 py-2 rounded-xl border border-neutral-800 hover:bg-neutral-900 disabled:opacity-60"
-          >
-            Continue with Google
-          </button>
-        </div>
-
-        {/* Divider */}
-        <div className="flex items-center gap-3 my-3">
-          <div className="h-px flex-1 bg-neutral-800" />
-          <span className="text-xs text-neutral-500">or</span>
-          <div className="h-px flex-1 bg-neutral-800" />
-        </div>
-
-        {/* Email section */}
-        <div className="space-y-3">
-          <input
-            className="w-full p-3 rounded-xl bg-neutral-900 border border-neutral-800 outline-none placeholder:text-neutral-600"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-
-          {/* Toggle for password vs magic link (only on Sign in) */}
-          {mode === "signin" && (
-            <>
-              <label className="flex items-center gap-2 text-sm text-neutral-400">
-                <input
-                  type="checkbox"
-                  checked={usePassword}
-                  onChange={(e) => setUsePassword(e.target.checked)}
-                />
-                Use password instead of magic link
-              </label>
-
-              {usePassword && (
-                <input
-                  className="w-full p-3 rounded-xl bg-neutral-900 border border-neutral-800 outline-none placeholder:text-neutral-600"
-                  type="password"
-                  placeholder="Your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              )}
-            </>
-          )}
-
-          {/* Password field for signup */}
-          {mode === "signup" && (
-            <input
-              className="w-full p-3 rounded-xl bg-neutral-900 border border-neutral-800 outline-none placeholder:text-neutral-600"
-              type="password"
-              placeholder="Create a password (min 6 chars)"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          )}
-
-          {/* Submit buttons */}
-          {mode === "signin" ? (
-            <button
-              onClick={usePassword ? handleSignInWithPassword : handleMagicLink}
-              disabled={loading}
-              className="w-full px-4 py-2 rounded-xl bg-white text-black font-medium hover:opacity-90 disabled:opacity-60"
-            >
-              {loading
-                ? usePassword
-                  ? "Signing in…"
-                  : "Sending link…"
-                : usePassword
-                ? "Sign in"
-                : "Send magic link"}
-            </button>
-          ) : (
-            <button
-              onClick={handleSignUp}
-              disabled={loading}
-              className="w-full px-4 py-2 rounded-xl bg-white text-black font-medium hover:opacity-90 disabled:opacity-60"
-            >
-              {loading ? "Creating…" : "Create account"}
-            </button>
-          )}
-        </div>
-
-        {status && (
-          <div className="mt-4 text-sm text-neutral-300 min-h-[1.25rem]">
-            {status}
-          </div>
-        )}
-
-        {mode === "signin" ? (
-          <div className="mt-3 text-xs text-neutral-500">
-            New here?{" "}
-            <button
-              className="underline underline-offset-4"
-              onClick={() => setMode("signup")}
-            >
-              Create an account
-            </button>
+        {user ? (
+          <div className="space-y-4 text-sm">
+            <p className="text-neutral-300">
+              Signed in as{" "}
+              <span className="font-mono text-sky-400">
+                {user.email ?? user.id}
+              </span>
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => router.push("/crossroads/global")}
+                className="flex-1 px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-xs"
+              >
+                Go to Crossroads
+              </button>
+              <button
+                onClick={handleSignOut}
+                disabled={loading}
+                className="px-3 py-2 rounded-md bg-red-700/80 hover:bg-red-700 text-xs disabled:opacity-50"
+              >
+                {loading ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="mt-3 text-xs text-neutral-500">
-            Already have an account?{" "}
+          <form onSubmit={handleSignIn} className="space-y-4 text-sm">
+            <div className="space-y-1">
+              <label className="block text-neutral-400 text-xs">
+                Email address
+              </label>
+              <input
+                type="email"
+                className="w-full px-3 py-2 rounded-md bg-neutral-900 border border-neutral-800 outline-none text-sm"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-neutral-400 text-xs">
+                Password
+              </label>
+              <input
+                type="password"
+                className="w-full px-3 py-2 rounded-md bg-neutral-900 border border-neutral-800 outline-none text-sm"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+
+            {error && (
+              <div className="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded-md px-3 py-2">
+                {error}
+              </div>
+            )}
+
             <button
-              className="underline underline-offset-4"
-              onClick={() => setMode("signin")}
+              type="submit"
+              disabled={loading}
+              className="w-full px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium disabled:opacity-50"
             >
-              Sign in
+              {loading ? "Signing in…" : "Sign in"}
             </button>
-          </div>
+
+            <p className="text-[11px] text-neutral-500 text-center mt-2">
+              Use the same email/password you created for Astrum. No OAuth yet.
+            </p>
+          </form>
         )}
       </div>
     </div>
