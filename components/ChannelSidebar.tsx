@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
-import { DEFAULT_CHANNELS, ChannelSlug } from "@/lib/constants";
+import { DEFAULT_CHANNELS, type ChannelSlug } from "@/lib/constants";
 
 type ChannelRow = {
   slug: ChannelSlug;        // e.g. 'global' | 'trade' | 'lfg' | 'guild'
@@ -15,16 +15,17 @@ type ChannelRow = {
 
 export default function ChannelSidebar() {
   const pathname = usePathname();
+  const supabase = useMemo(() => createClient(), []);
   const [channels, setChannels] = useState<ChannelRow[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setLoading(true);
-      // v_channels should expose slug, label, sort_order
+
+      // Expect a view `v_channels(slug, label, sort_order)`; if missing, we fall back
       const { data, error } = await supabase
         .from("v_channels")
         .select("slug,label,sort_order")
@@ -32,7 +33,7 @@ export default function ChannelSidebar() {
 
       if (!cancelled) {
         if (error) {
-          console.warn("v_channels fetch error:", error);
+          console.warn("v_channels fetch error:", error.message);
           setChannels(null);
         } else {
           setChannels((data ?? []) as ChannelRow[]);
@@ -50,31 +51,31 @@ export default function ChannelSidebar() {
   const rows: ChannelRow[] = useMemo(() => {
     if (loading) return [];
     if (!channels || channels.length === 0) {
+      // Fallback to static constants
       return DEFAULT_CHANNELS.map((c, i) => ({
         slug: c.slug as ChannelSlug,
         label: c.label,
         sort_order: i,
       }));
     }
-    // Filter to only supported slugs + stable order
+    // Only allow known slugs; keep stable order
     return channels
-      .filter((c) => DEFAULT_CHANNELS.some(d => d.slug === c.slug))
+      .filter((c) => DEFAULT_CHANNELS.some((d) => d.slug === c.slug))
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   }, [channels, loading]);
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-3 py-4 border-b border-neutral-800">
-        <div className="text-xs font-semibold tracking-widest text-neutral-400 uppercase">
-          Channels
-        </div>
+      {/* Section: Channels */}
+      <div className="px-3 py-2 text-xs tracking-wide text-neutral-500">
+        CHANNELS
       </div>
 
       <nav className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="p-3 text-sm text-neutral-400">Loading…</div>
         ) : (
-          <ul className="py-2">
+          <ul className="space-y-1 px-2">
             {rows.map((ch) => {
               const href = `/crossroads/${ch.slug}`;
               const active = pathname?.startsWith(href);
@@ -83,18 +84,14 @@ export default function ChannelSidebar() {
                   <Link
                     href={href}
                     className={[
-                      "block px-3 py-2 text-sm",
-                      "transition-colors",
+                      "block rounded-lg px-3 py-2 text-sm",
                       active
                         ? "bg-neutral-900 text-white"
                         : "text-neutral-300 hover:text-white hover:bg-neutral-900",
                     ].join(" ")}
                   >
-                    {/* Show label (e.g. Global / Trade / LFG / Guild) */}
-                    {ch.label}
-                    <span className="ml-2 text-[10px] uppercase tracking-wider text-neutral-500">
-                      /{ch.slug}
-                    </span>
+                    <span className="mr-2">{ch.label}</span>
+                    <span className="text-neutral-500">/{ch.slug.toUpperCase()}</span>
                   </Link>
                 </li>
               );
@@ -103,7 +100,21 @@ export default function ChannelSidebar() {
         )}
       </nav>
 
-      <div className="p-3 border-t border-neutral-800 text-xs text-neutral-500">
+      {/* Section: Account */}
+      <div className="px-3 py-2 text-xs tracking-wide text-neutral-500">
+        ACCOUNT
+      </div>
+      <div className="px-2 pb-3">
+        <Link
+          href="/settings/profile"
+          className="block rounded-lg px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-900"
+        >
+          Profile
+        </Link>
+      </div>
+
+      {/* Footer */}
+      <div className="mt-auto p-3 border-t border-neutral-800 text-xs text-neutral-500">
         Astrum Crossroads
       </div>
     </div>

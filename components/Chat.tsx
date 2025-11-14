@@ -2,66 +2,88 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabaseClient";
-const supabase = createClient();
+import { useRouter } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { nanoid } from "nanoid";
+
+import { createClient } from "@/lib/supabaseClient";
 import { ensureUniqueById } from "@/lib/dedupe";
 import { MAX_HISTORY } from "@/lib/constants";
 
-type MessageRow = {
+type FeedMessage = {
   id: string;
-  channel: string;          // 'global' | 'trade' | 'lfg' | 'guild'
-  user_id: string | null;
-  username: string | null;
+  channel: string;
   content: string;
-  created_at: string;       // ISO
-  optimistic?: boolean;     // client-side flag for UI
+  created_at: string;
+  display_name: string | null;
+  optimistic?: boolean;
+  status?: "pending" | "failed" | "sent";
 };
 
-type Props = {
-  channel: string;
-};
+type Props = { channel: string };
 
 export default function Chat({ channel }: Props) {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
-  const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [messages, setMessages] = useState<FeedMessage[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [userPresent, setUserPresent] = useState(false);
+  const [errText, setErrText] = useState<string | null>(null);
+
   const listRef = useRef<HTMLDivElement>(null);
   const realtimeRef = useRef<RealtimeChannel | null>(null);
 
-  // Scroll to bottom helper
   const scrollBottom = useCallback(() => {
     requestAnimationFrame(() => {
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+      listRef.current?.scrollTo({
+        top: listRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     });
   }, []);
 
-  // Load initial history for this channel
+  // 🔐 Auth state
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setUserPresent(Boolean(data.session));
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [supabase]);
+
+  // 📥 Initial load from VIEW: message_feed
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setErrText(null);
 
     (async () => {
       const { data, error } = await supabase
-        .from("messages")
-        .select("id, channel, user_id, username, content, created_at")
+        .from("message_feed")
+        .select("id, channel, content, created_at, display_name")
         .eq("channel", channel)
         .order("created_at", { ascending: true })
         .limit(MAX_HISTORY);
 
-      if (!cancelled) {
-        if (error) {
-          console.warn("load messages error:", error);
-          setMessages([]);
-        } else {
-          setMessages((data ?? []) as MessageRow[]);
-        }
+      if (cancelled) return;
+
+      if (error) {
+        console.warn("load feed error:", error);
+        setErrText(`Load failed: ${error.message}`);
+        setMessages([]);
         setLoading(false);
-        scrollBottom();
+        return;
       }
+
+      setMessages((data ?? []) as FeedMessage[]);
+      setLoading(false);
+      scrollBottom();
     })();
 
     return () => {
@@ -69,9 +91,8 @@ export default function Chat({ channel }: Props) {
     };
   }, [channel, supabase, scrollBottom]);
 
-  // Realtime subscription for only this channel
+  // 🔴 Realtime: listen on messages, hydrate from message_feed
   useEffect(() => {
-    // Cleanup old subscription (if any)
     if (realtimeRef.current) {
       supabase.removeChannel(realtimeRef.current);
       realtimeRef.current = null;
@@ -87,17 +108,36 @@ export default function Chat({ channel }: Props) {
           table: "messages",
           filter: `channel=eq.${channel}`,
         },
-        (payload) => {
-          const row = payload.new as MessageRow;
+        async (payload) => {
+          const row = payload.new as { id: string };
+
+          const { data, error } = await supabase
+            .from("message_feed")
+            .select("id, channel, content, created_at, display_name")
+            .eq("id", row.id)
+            .single();
+
+          if (error || !data) {
+            console.warn("realtime hydrate error:", error);
+            return;
+          }
+
+          const msg = data as FeedMessage;
+
           setMessages((prev) => {
-            const merged = ensureUniqueById([...prev, row]).slice(-MAX_HISTORY);
-            return merged;
+            // remove any optimistic echo with same content
+            const base = prev.filter(
+              (m) =>
+                !m.optimistic || m.content.trim() !== msg.content.trim()
+            );
+            return ensureUniqueById([...base, msg]).slice(-MAX_HISTORY);
           });
+
           scrollBottom();
         }
-      );
+      )
+      .subscribe();
 
-    ch.subscribe();
     realtimeRef.current = ch;
 
     return () => {
@@ -106,72 +146,144 @@ export default function Chat({ channel }: Props) {
         realtimeRef.current = null;
       }
     };
-  }, [supabase, channel, scrollBottom]);
+  }, [channel, supabase, scrollBottom]);
 
+  const renderName = (m: FeedMessage) =>
+    m.display_name && m.display_name.length > 0 ? m.display_name : "Anonymous";
+
+  // ✉️ Send message -> pending queue -> AI moderation -> messages
   const sendMessage = useCallback(async () => {
     const content = text.trim();
     if (!content || sending) return;
 
-    setSending(true);
-
-    // Pull current user
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    // Optimistic row
-    const optimisticId = `opt_${nanoid(10)}`;
-    const optimistic: MessageRow = {
+    if (!session) {
+      router.push("/auth");
+      return;
+    }
+
+    const userId = session.user.id;
+
+    setSending(true);
+    setErrText(null);
+
+    // optimistic echo in UI
+    const optimisticId = `opt_${Date.now()}`;
+    const optimistic: FeedMessage = {
       id: optimisticId,
       channel,
-      user_id: user?.id ?? null,
-      username: user?.email ?? "You",
       content,
       created_at: new Date().toISOString(),
+      display_name: "You",
       optimistic: true,
+      status: "pending",
     };
 
-    setMessages((prev) => {
-      const merged = ensureUniqueById([...prev, optimistic]).slice(-MAX_HISTORY);
-      return merged;
-    });
+    setMessages((prev) =>
+      ensureUniqueById([...prev, optimistic]).slice(-MAX_HISTORY)
+    );
     setText("");
     scrollBottom();
 
-    // Insert to DB
-    const { data, error } = await supabase
-      .from("messages")
+    // Insert into pending queue with GLOBAL channel UUID + user_id
+    const {
+      data,
+      error,
+    }: { data: { id: string } | null; error: any } = await supabase
+      .from("messages_pending_tbl")
       .insert({
-        channel,
-        user_id: user?.id ?? null,
-        username: user?.email ?? null,
+        channel_id: "98d09700-c18f-4c12-9820-7858ef5ebae0", // GLOBAL channel
         content,
+        user_id: userId,
       })
-      .select("id, channel, user_id, username, content, created_at")
+      .select("id")
       .single();
 
-    if (error) {
+    if (error || !data) {
       console.warn("send error:", error);
-      // Mark optimistic message as failed (optional: keep UI feedback simple)
+
+      setErrText(
+        error?.code === "42501"
+          ? "You are currently blocked from chatting."
+          : `Send failed: ${error?.message ?? "Unknown error"}`
+      );
+
+      // mark optimistic as failed
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === optimisticId ? { ...m, username: "(failed) You" } : m
+          m.id === optimisticId
+            ? {
+                ...m,
+                display_name: "(failed) You",
+                status: "failed",
+              }
+            : m
         )
       );
-    } else if (data) {
-      // Replace optimistic with real row immediately (dedupe fn also helps)
-      setMessages((prev) => {
-        const replaced = prev
-          .filter((m) => m.id !== optimisticId)
-          .concat([data as MessageRow]);
-        return ensureUniqueById(replaced).slice(-MAX_HISTORY);
-      });
+
+      setSending(false);
+      return;
     }
 
-    setSending(false);
-  }, [channel, text, supabase, sending, scrollBottom]);
+    // 🔥 Fire off AI moderation (non-blocking)
+    fetch("/api/moderation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pendingId: data.id }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          console.error("Moderation request failed:", res.status);
+          // treat as failure
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === optimisticId
+                ? {
+                    ...m,
+                    display_name: "(failed) You",
+                    status: "failed",
+                  }
+                : m
+            )
+          );
+          setErrText("Message failed moderation.");
+          return;
+        }
 
-  // Enter to send
+        const payload = await res.json();
+
+        // If AI rejected it, remove the optimistic bubble
+        if (payload.status === "rejected") {
+          setMessages((prev) =>
+            prev.filter((m) => m.id !== optimisticId)
+          );
+          setErrText("Message blocked by moderation.");
+        }
+        // If approved, realtime INSERT on `messages` will replace the optimistic echo.
+      })
+      .catch((err) => {
+        console.error("Failed to call moderation endpoint:", err);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === optimisticId
+              ? {
+                  ...m,
+                  display_name: "(failed) You",
+                  status: "failed",
+                }
+              : m
+          )
+        );
+        setErrText("Message failed moderation.");
+      });
+
+    // Allow user to send another message while AI runs
+    setSending(false);
+  }, [channel, text, supabase, sending, scrollBottom, router]);
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -199,37 +311,62 @@ export default function Chat({ channel }: Props) {
                   minute: "2-digit",
                 })}
               </span>
-              <span className={m.optimistic ? "text-amber-400" : "text-sky-400"}>
-                {m.username ?? "anon"}
+              <span
+                className={m.optimistic ? "text-amber-400" : "text-sky-400"}
+              >
+                {renderName(m)}
               </span>
               <span className="text-neutral-500 mx-2">→</span>
-              <span className="text-neutral-200 break-words">{m.content}</span>
+              <span
+                className={`text-neutral-200 break-words ${
+                  m.optimistic ? "italic opacity-80" : ""
+                }`}
+              >
+                {m.content}
+              </span>
             </div>
           ))
         )}
       </div>
 
       {/* Composer */}
-      <div className="border-t border-neutral-800 p-3">
-        <div className="rounded-lg bg-neutral-900 focus-within:ring-1 focus-within:ring-neutral-700">
-          <textarea
-            className="w-full bg-transparent outline-none p-3 text-sm resize-none"
-            rows={2}
-            placeholder={`Message #${channel} — press Enter to send`}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={onKeyDown}
-          />
-        </div>
-        <div className="mt-2 flex justify-end">
-          <button
-            onClick={() => void sendMessage()}
-            disabled={sending || !text.trim()}
-            className="px-4 py-2 rounded-md bg-white/10 hover:bg-white/15 disabled:opacity-50 text-sm"
-          >
-            Send
-          </button>
-        </div>
+      <div className="border-t border-neutral-800 p-3 space-y-2">
+        {errText && <div className="text-xs text-red-400">{errText}</div>}
+        {userPresent ? (
+          <>
+            <div className="rounded-lg bg-neutral-900 focus-within:ring-1 focus-within:ring-neutral-700">
+              <textarea
+                className="w-full bg-transparent outline-none p-3 text-sm resize-none"
+                rows={2}
+                placeholder={`Message #${channel}`}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={onKeyDown}
+              />
+            </div>
+            <div className="mt-2 flex justify-end">
+              <button
+                onClick={() => void sendMessage()}
+                disabled={sending || !text.trim()}
+                className="px-4 py-2 rounded-md bg-white/10 hover:bg-white/15 disabled:opacity-50 text-sm"
+              >
+                Send
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-neutral-400">
+              You must be signed in to chat.
+            </div>
+            <button
+              onClick={() => router.push("/auth")}
+              className="px-4 py-2 rounded-xl border border-neutral-700 hover:bg-neutral-900"
+            >
+              Sign in
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

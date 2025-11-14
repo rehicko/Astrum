@@ -1,19 +1,42 @@
 // app/crossroads/layout.tsx
+
 import type { ReactNode } from "react";
+import Link from "next/link";
+
 import ChannelSidebar from "@/components/ChannelSidebar";
+import SignOutButton from "@/components/SignOutButton";
 
-export default function CrossroadsLayout({ children }: { children: ReactNode }) {
+export default function CrossroadsLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
-    <div className="h-[100dvh] w-full grid grid-cols-12 bg-neutral-950 text-neutral-100">
-      {/* Sidebar */}
-      <aside className="col-span-3 md:col-span-2 lg:col-span-2 border-r border-neutral-800">
-        <ChannelSidebar />
-      </aside>
+    <div className="h-screen flex bg-black text-white">
+      {/* Left sidebar: channels / navigation */}
+      <ChannelSidebar />
 
-      {/* Main */}
-      <main className="col-span-9 md:col-span-10 lg:col-span-10 flex flex-col">
-        {children}
-      </main>
+      {/* Right side: header + main content */}
+      <div className="flex flex-col flex-1">
+        {/* Top bar */}
+        <header className="flex items-center justify-between px-4 py-2 border-b border-neutral-800">
+          <div className="text-sm font-semibold tracking-wide text-neutral-200">
+            Astrum Crossroads
+          </div>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/settings"
+              className="text-xs text-neutral-400 hover:text-white"
+            >
+              Profile
+            </Link>
+            <SignOutButton />
+          </div>
+        </header>
+
+        {/* Main chat area */}
+        <main className="flex-1 flex flex-col">{children}</main>
+      </div>
     </div>
   );
 }
