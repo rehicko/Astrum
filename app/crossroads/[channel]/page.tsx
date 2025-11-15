@@ -1,3 +1,4 @@
+// app/crossroads/[channel]/page.tsx
 import Chat from "@/components/Chat";
 import { SUPPORTED_CHANNELS } from "@/lib/constants";
 
@@ -14,11 +15,6 @@ export default async function ChannelPage({ params }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-neutral-800 p-3">
-        <h1 className="text-sm tracking-wide text-neutral-300">
-          /crossroads/<span className="text-white font-medium">{channel}</span>
-        </h1>
-      </div>
       <Chat channel={channel} />
     </div>
   );

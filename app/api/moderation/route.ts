@@ -5,54 +5,42 @@ import { createClient } from "@supabase/supabase-js";
 
 const CHANNEL_NAME = "global";
 
-// Read env vars at module load (safe, no throws here)
+// Environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const openaiApiKey = process.env.OPENAI_API_KEY;
 
-/**
- * POST /api/moderation
- * Body: { pendingId: string }
- *
- * Loads a pending message, sends content to OpenAI moderation,
- * and either:
- *  - rejects: deletes from pending + returns { status: "rejected" }
- *  - approves: moves to messages + deletes from pending + returns { status: "approved" }
- */
 export async function POST(req: Request) {
   try {
-    // Runtime env safety checks (no impact on build)
+    // --- ENVIRONMENT CHECKS ---
     if (!supabaseUrl || !supabaseServiceKey) {
       console.error(
-        "Moderation route misconfigured: missing Supabase env vars. " +
-          "Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in Vercel."
+        "Moderation route misconfigured: missing Supabase env vars."
       );
       return NextResponse.json(
-        { error: "Moderation service not configured (Supabase env missing)" },
+        { error: "Supabase environment not configured" },
         { status: 500 }
       );
     }
 
     if (!openaiApiKey) {
       console.error(
-        "Moderation route misconfigured: missing OPENAI_API_KEY env var."
+        "Moderation route misconfigured: missing OPENAI_API_KEY."
       );
       return NextResponse.json(
-        { error: "Moderation service not configured (OpenAI env missing)" },
+        { error: "OpenAI environment not configured" },
         { status: 500 }
       );
     }
 
-    // Create clients now that we know env vars exist
+    // --- CLIENTS ---
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false },
     });
 
-    const openai = new OpenAI({
-      apiKey: openaiApiKey,
-    });
+    const openai = new OpenAI({ apiKey: openaiApiKey });
 
-    // Parse body
+    // --- BODY ---
     const { pendingId } = await req.json();
 
     if (!pendingId) {
@@ -62,7 +50,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1) Load the pending message
+    // --- 1) LOAD PENDING MESSAGE ---
     const { data: pending, error: fetchError } = await supabaseAdmin
       .from("messages_pending_tbl")
       .select("id, content, user_id, created_at")
@@ -77,7 +65,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) Run OpenAI moderation
+    // --- 2) RUN FAST MODERATION MODEL ---
     const moderation = await openai.moderations.create({
       model: "omni-moderation-latest",
       input: pending.content,
@@ -86,31 +74,30 @@ export async function POST(req: Request) {
     const result = moderation.results[0];
     const flagged = result.flagged;
 
+    // ========================================================================
+    //                           REJECTED MESSAGE
+    // ========================================================================
     if (flagged) {
-      // 3a) Rejected: delete from pending and return
       const { error: deleteError } = await supabaseAdmin
         .from("messages_pending_tbl")
         .delete()
         .eq("id", pending.id);
 
       if (deleteError) {
-        console.error(
-          "Failed to delete rejected pending message:",
-          deleteError
-        );
+        console.error("Failed to delete rejected message:", deleteError);
       }
 
-      return NextResponse.json({
-        status: "rejected",
-      });
+      return NextResponse.json({ status: "rejected" });
     }
 
-    // 3b) Approved: insert into messages
+    // ========================================================================
+    //                           APPROVED MESSAGE
+    // ========================================================================
     const { error: insertError } = await supabaseAdmin.from("messages").insert({
       channel: CHANNEL_NAME,
       content: pending.content,
       user_id: pending.user_id,
-      // created_at will default in DB
+      // created_at defaults in DB
     });
 
     if (insertError) {
@@ -121,7 +108,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) Clean up from pending
+    // Cleanup
     const { error: deleteError } = await supabaseAdmin
       .from("messages_pending_tbl")
       .delete()
@@ -129,7 +116,7 @@ export async function POST(req: Request) {
 
     if (deleteError) {
       console.error(
-        "Failed to delete pending after approve (non-fatal):",
+        "Warning: approved message inserted but pending cleanup failed:",
         deleteError
       );
     }
