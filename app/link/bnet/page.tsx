@@ -1,4 +1,6 @@
 // app/link/bnet/page.tsx
+export const dynamic = "force-dynamic"; // ← STOP prerendering
+
 import { redirect } from "next/navigation";
 
 function getEnv(name: string): string {
@@ -23,8 +25,6 @@ export default function BattleNetLinkPage() {
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", "wow.profile");
-
-  // REQUIRED by Blizzard OAuth — prevents 400 error
   authUrl.searchParams.set("state", crypto.randomUUID());
 
   redirect(authUrl.toString());
