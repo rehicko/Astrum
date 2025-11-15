@@ -149,7 +149,6 @@ export default function Chat({ channel }: Props) {
     };
   }, [channel, supabase, scrollBottom]);
 
-  // now just return raw display_name; UsernameMenu handles "Anonymous"
   const renderName = (m: FeedMessage) => m.display_name;
 
   // ✉️ Send message -> pending queue -> AI moderation -> messages
@@ -315,7 +314,7 @@ export default function Chat({ channel }: Props) {
               <span
                 className={m.optimistic ? "text-amber-400" : "text-sky-400"}
               >
-                <UsernameMenu name={renderName(m)} />
+                <UsernameMenu name={renderName(m)} messageId={m.id} />
               </span>
               <span className="text-neutral-500 mx-2">→</span>
               <span

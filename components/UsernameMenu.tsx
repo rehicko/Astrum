@@ -1,10 +1,12 @@
 // components/UsernameMenu.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabaseClient";
 
 type UsernameMenuProps = {
   name: string | null;
+  messageId: string;
 };
 
 type MenuState = {
@@ -13,14 +15,17 @@ type MenuState = {
   y: number;
 };
 
-export function UsernameMenu({ name }: UsernameMenuProps) {
+export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
+  const supabase = useMemo(() => createClient(), []);
   const safeName = name || "Anonymous";
+
   const [menu, setMenu] = useState<MenuState>({
     open: false,
     x: 0,
     y: 0,
   });
 
+  const [reporting, setReporting] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const closeMenu = () => {
@@ -38,7 +43,7 @@ export function UsernameMenu({ name }: UsernameMenuProps) {
     });
   };
 
-  // Left-click to open as well (for trackpads)
+  // Left-click to open as well (trackpads)
   const handleClick = (e: React.MouseEvent) => {
     handleOpen(e);
   };
@@ -71,7 +76,6 @@ export function UsernameMenu({ name }: UsernameMenuProps) {
     };
   }, [menu.open]);
 
-  // Actions — wired later
   const handleViewProfile = () => {
     closeMenu();
     alert("View Profile is coming soon. You’ll be able to inspect players here.");
@@ -87,11 +91,39 @@ export function UsernameMenu({ name }: UsernameMenuProps) {
     alert("Whispers / private threads are coming soon.");
   };
 
-  const handleReport = () => {
+  const handleReport = async () => {
     closeMenu();
-    alert(
-      "Report placeholder. This will soon send a report into the moderation queue."
-    );
+    setReporting(true);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        alert("You need to be signed in to report messages.");
+        setReporting(false);
+        return;
+      }
+
+      const { error } = await supabase.from("message_reports").insert({
+        message_id: messageId,
+        reporter_id: session.user.id,
+        reason: "Reported from username context menu",
+      });
+
+      if (error) {
+        console.error("report error:", error);
+        alert("Failed to send report. Try again later.");
+      } else {
+        alert("Report sent to moderators.");
+      }
+    } catch (err) {
+      console.error("report error:", err);
+      alert("Failed to send report. Try again later.");
+    } finally {
+      setReporting(false);
+    }
   };
 
   return (
@@ -110,7 +142,7 @@ export function UsernameMenu({ name }: UsernameMenuProps) {
       {menu.open && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[190px] rounded-xl border border-sky-500/30 bg-black/90 backdrop-blur-md shadow-[0_18px_45px_rgba(0,0,0,0.85)] text-xs text-neutral-100 overflow-hidden animate-[fadeIn_120ms_ease-out]"
+          className="fixed z-50 min-w-[190px] rounded-xl border border-sky-500/30 bg-black/90 backdrop-blur-md shadow-[0_18px_45px_rgba(0,0,0,0.85)] text-xs text-neutral-100 overflow-hidden"
           style={{
             top: menu.y + 6,
             left: menu.x + 6,
@@ -168,7 +200,7 @@ export function UsernameMenu({ name }: UsernameMenuProps) {
             onClick={handleReport}
             className="w-full text-left px-3 py-2.5 hover:bg-red-900/40 text-red-300 flex items-center justify-between transition-colors"
           >
-            <span>Report</span>
+            <span>{reporting ? "Reporting…" : "Report"}</span>
             <span className="text-[9px] uppercase tracking-[0.16em] text-red-400/90">
               ALERT
             </span>
