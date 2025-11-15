@@ -4,29 +4,55 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
 const CHANNEL_NAME = "global";
-// Service-role Supabase Client (server-side only)
+
+// Read env vars at module load (safe, no throws here)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const openaiApiKey = process.env.OPENAI_API_KEY;
 
-if (!supabaseUrl) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL is missing in environment variables.");
-}
-if (!supabaseServiceKey) {
-  throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.");
-}
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { persistSession: false },
-});
-
-
-// OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
+/**
+ * POST /api/moderation
+ * Body: { pendingId: string }
+ *
+ * Loads a pending message, sends content to OpenAI moderation,
+ * and either:
+ *  - rejects: deletes from pending + returns { status: "rejected" }
+ *  - approves: moves to messages + deletes from pending + returns { status: "approved" }
+ */
 export async function POST(req: Request) {
   try {
+    // Runtime env safety checks (no impact on build)
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error(
+        "Moderation route misconfigured: missing Supabase env vars. " +
+          "Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in Vercel."
+      );
+      return NextResponse.json(
+        { error: "Moderation service not configured (Supabase env missing)" },
+        { status: 500 }
+      );
+    }
+
+    if (!openaiApiKey) {
+      console.error(
+        "Moderation route misconfigured: missing OPENAI_API_KEY env var."
+      );
+      return NextResponse.json(
+        { error: "Moderation service not configured (OpenAI env missing)" },
+        { status: 500 }
+      );
+    }
+
+    // Create clients now that we know env vars exist
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false },
+    });
+
+    const openai = new OpenAI({
+      apiKey: openaiApiKey,
+    });
+
+    // Parse body
     const { pendingId } = await req.json();
 
     if (!pendingId) {
