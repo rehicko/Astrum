@@ -43,7 +43,7 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
     });
   };
 
-  // Left-click to open as well (trackpads)
+  // Left-click to open as well (for trackpads)
   const handleClick = (e: React.MouseEvent) => {
     handleOpen(e);
   };
@@ -78,7 +78,9 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
 
   const handleViewProfile = () => {
     closeMenu();
-    alert("View Profile is coming soon. You’ll be able to inspect players here.");
+    alert(
+      "View Profile is coming soon. You’ll be able to inspect players here."
+    );
   };
 
   const handleAddFriend = () => {
@@ -133,7 +135,7 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
         type="button"
         onClick={handleClick}
         onContextMenu={handleOpen}
-        className="font-semibold text-sky-300 hover:text-sky-200 focus:outline-none focus:ring-1 focus:ring-sky-500/70 rounded-sm transition-colors"
+        className="font-semibold text-sky-300 hover:text-sky-100 focus:outline-none focus:ring-1 focus:ring-sky-500/70 rounded-sm transition-colors"
       >
         {safeName}
       </button>
@@ -142,17 +144,17 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
       {menu.open && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[190px] rounded-xl border border-sky-500/30 bg-black/90 backdrop-blur-md shadow-[0_18px_45px_rgba(0,0,0,0.85)] text-xs text-neutral-100 overflow-hidden"
+          className="fixed z-50 min-w-[200px] rounded-xl border border-sky-500/40 bg-black/95 backdrop-blur-md shadow-[0_22px_60px_rgba(0,0,0,0.9)] text-xs text-neutral-100 overflow-hidden astrum-menu"
           style={{
             top: menu.y + 6,
             left: menu.x + 6,
           }}
         >
           {/* Accent glow strip */}
-          <div className="h-[2px] w-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-500" />
+          <div className="h-[2px] w-full astrum-menu-glow bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-500" />
 
           {/* Header */}
-          <div className="px-3 py-2 border-b border-white/5 bg-white/2 text-[11px] text-neutral-300 flex items-center justify-between">
+          <div className="px-3 py-2 border-b border-white/5 bg-white/[0.02] text-[11px] text-neutral-300 flex items-center justify-between">
             <span className="truncate">{safeName}</span>
             <span className="text-[9px] uppercase tracking-[0.18em] text-sky-400/80">
               Astrum
@@ -163,7 +165,7 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
           <button
             type="button"
             onClick={handleViewProfile}
-            className="w-full text-left px-3 py-2.5 hover:bg-sky-500/10 hover:text-sky-200 flex items-center justify-between transition-colors"
+            className="w-full text-left px-3 py-2.5 hover:bg-sky-500/15 hover:text-sky-100 flex items-center justify-between transition-colors"
           >
             <span>View Profile</span>
             <span className="text-[9px] text-neutral-500">ENTER</span>
