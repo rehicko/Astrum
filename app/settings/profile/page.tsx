@@ -1,7 +1,7 @@
 // app/settings/profile/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
@@ -12,7 +12,7 @@ type Profile = {
 };
 
 export default function ProfileSettingsPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -237,9 +237,7 @@ export default function ProfileSettingsPage() {
                 </div>
 
                 <div className="rounded-xl border border-neutral-900 bg-black/40 px-3 py-3 text-xs text-neutral-400">
-                  <p className="mb-1">
-                    You&apos;ll be able to:
-                  </p>
+                  <p className="mb-1">You&apos;ll be able to:</p>
                   <ul className="list-disc list-inside space-y-1">
                     <li>Link your Battle.net account.</li>
                     <li>Select your WoW main character.</li>
