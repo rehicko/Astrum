@@ -8,6 +8,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabaseClient";
 import { ensureUniqueById } from "@/lib/dedupe";
 import { MAX_HISTORY } from "@/lib/constants";
+import { UsernameMenu } from "@/components/UsernameMenu";
 
 type FeedMessage = {
   id: string;
@@ -148,8 +149,8 @@ export default function Chat({ channel }: Props) {
     };
   }, [channel, supabase, scrollBottom]);
 
-  const renderName = (m: FeedMessage) =>
-    m.display_name && m.display_name.length > 0 ? m.display_name : "Anonymous";
+  // now just return raw display_name; UsernameMenu handles "Anonymous"
+  const renderName = (m: FeedMessage) => m.display_name;
 
   // ✉️ Send message -> pending queue -> AI moderation -> messages
   const sendMessage = useCallback(async () => {
@@ -314,7 +315,7 @@ export default function Chat({ channel }: Props) {
               <span
                 className={m.optimistic ? "text-amber-400" : "text-sky-400"}
               >
-                {renderName(m)}
+                <UsernameMenu name={renderName(m)} />
               </span>
               <span className="text-neutral-500 mx-2">→</span>
               <span
