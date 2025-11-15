@@ -43,12 +43,12 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
     });
   };
 
-  // Left-click to open as well (for trackpads)
+  // Trackpad-friendly: left-click also opens menu
   const handleClick = (e: React.MouseEvent) => {
     handleOpen(e);
   };
 
-  // Close on click outside or Escape
+  // Close on outside click or Escape
   useEffect(() => {
     if (!menu.open) return;
 
@@ -78,19 +78,17 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
 
   const handleViewProfile = () => {
     closeMenu();
-    alert(
-      "View Profile is coming soon. You’ll be able to inspect players here."
-    );
+    alert("View Profile coming soon.");
   };
 
   const handleAddFriend = () => {
     closeMenu();
-    alert("Friends system is coming soon. For now this is disabled.");
+    alert("Friends system coming soon.");
   };
 
   const handleWhisper = () => {
     closeMenu();
-    alert("Whispers / private threads are coming soon.");
+    alert("Whispers coming soon.");
   };
 
   const handleReport = async () => {
@@ -103,7 +101,7 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
       } = await supabase.auth.getSession();
 
       if (!session) {
-        alert("You need to be signed in to report messages.");
+        alert("You must be signed in to report messages.");
         setReporting(false);
         return;
       }
@@ -111,18 +109,18 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
       const { error } = await supabase.from("message_reports").insert({
         message_id: messageId,
         reporter_id: session.user.id,
-        reason: "Reported from username context menu",
+        reason: "Reported from context menu",
       });
 
       if (error) {
-        console.error("report error:", error);
-        alert("Failed to send report. Try again later.");
+        console.error("Report error:", error);
+        alert("Failed to send report.");
       } else {
-        alert("Report sent to moderators.");
+        alert("Report sent.");
       }
     } catch (err) {
-      console.error("report error:", err);
-      alert("Failed to send report. Try again later.");
+      console.error("Report failed:", err);
+      alert("Failed to send report.");
     } finally {
       setReporting(false);
     }
@@ -130,7 +128,7 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
 
   return (
     <>
-      {/* Username label */}
+      {/* Username text */}
       <button
         type="button"
         onClick={handleClick}
@@ -140,7 +138,7 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
         {safeName}
       </button>
 
-      {/* Context menu */}
+      {/* Floating menu */}
       {menu.open && (
         <div
           ref={menuRef}
@@ -150,7 +148,7 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
             left: menu.x + 6,
           }}
         >
-          {/* Accent glow strip */}
+          {/* Neon glow top strip */}
           <div className="h-[2px] w-full astrum-menu-glow bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-500" />
 
           {/* Header */}
@@ -173,8 +171,8 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
 
           <button
             type="button"
-            onClick={handleAddFriend}
             disabled
+            onClick={handleAddFriend}
             className="w-full text-left px-3 py-2.5 text-neutral-500 hover:bg-white/5 cursor-not-allowed flex items-center justify-between"
           >
             <span>Add Friend (soon)</span>
@@ -185,8 +183,8 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
 
           <button
             type="button"
-            onClick={handleWhisper}
             disabled
+            onClick={handleWhisper}
             className="w-full text-left px-3 py-2.5 text-neutral-500 hover:bg-white/5 cursor-not-allowed flex items-center justify-between"
           >
             <span>Whisper (soon)</span>
