@@ -85,21 +85,29 @@ export async function GET(req: NextRequest) {
       }),
     });
 
+    const tokenText = await tokenRes.text();
     if (!tokenRes.ok) {
-      const text = await tokenRes.text();
       return NextResponse.json(
         {
           status: "error",
           step: "token",
           message: "Failed to exchange code for token",
-          details: text,
+          http_status: tokenRes.status,
+          details: tokenText,
         },
         { status: 500 }
       );
     }
 
-    const tokenJson = (await tokenRes.json()) as { access_token?: string };
-    const accessToken = tokenJson.access_token;
+    let accessToken: string | undefined;
+    try {
+      const tokenJson = JSON.parse(tokenText) as { access_token?: string };
+      accessToken = tokenJson.access_token;
+    } catch {
+      // token endpoint sometimes returns urlencoded; just in case
+      const params = new URLSearchParams(tokenText);
+      accessToken = params.get("access_token") ?? undefined;
+    }
 
     if (!accessToken) {
       return NextResponse.json(
@@ -107,32 +115,50 @@ export async function GET(req: NextRequest) {
           status: "error",
           step: "token_missing",
           message: "No access_token in Battle.net token response",
+          raw: tokenText,
         },
         { status: 500 }
       );
     }
 
-    // 2) Fetch WoW profile
+    // 2) Fetch WoW profile (this is where we are failing now)
     const profileUrl = `https://${region}.api.blizzard.com/profile/user/wow?namespace=profile-${region}&locale=en_US&access_token=${encodeURIComponent(
       accessToken
     )}`;
 
     const profileRes = await fetch(profileUrl);
+    const profileText = await profileRes.text();
 
     if (!profileRes.ok) {
-      const text = await profileRes.text();
+      // DEBUG: expose everything so we can see what Blizzard is saying
       return NextResponse.json(
         {
           status: "error",
           step: "profile",
           message: "Failed to fetch WoW profile",
-          details: text,
+          http_status: profileRes.status,
+          requested_url: profileUrl,
+          details: profileText,
         },
         { status: 500 }
       );
     }
 
-    const profileJson = (await profileRes.json()) as WowProfileFromApi;
+    let profileJson: WowProfileFromApi;
+    try {
+      profileJson = JSON.parse(profileText) as WowProfileFromApi;
+    } catch {
+      return NextResponse.json(
+        {
+          status: "error",
+          step: "profile_parse",
+          message: "Could not parse WoW profile JSON",
+          raw: profileText,
+        },
+        { status: 500 }
+      );
+    }
+
     const wowAccounts = profileJson.wow_accounts ?? [];
 
     // 3) Flatten characters for Supabase
@@ -166,7 +192,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // No characters found
     if (rowsToInsert.length === 0) {
       return NextResponse.redirect(
         new URL("/profile?bnet=linked&chars=0", req.url)
