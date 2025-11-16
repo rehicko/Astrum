@@ -3,23 +3,22 @@ export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
 
-// Figure out our base URL in a safe way for both local + Vercel
+// Figure out our base URL for both local + Vercel
 function getBaseUrl() {
-  // If you set this, it wins
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return process.env.NEXT_PUBLIC_APP_URL!;
   }
 
-  // On Vercel in production, default to your live URL
   if (process.env.VERCEL === "1") {
+    // Vercel prod fallback
     return "https://astrum-ten.vercel.app";
   }
 
-  // Fallback for local dev
+  // Local dev fallback
   return "http://localhost:3000";
 }
 
-// Simple state value — avoids any crypto issues
+// Simple state value (no crypto issues)
 function makeState() {
   return `${Date.now().toString(36)}-${Math.random()
     .toString(36)
@@ -29,15 +28,35 @@ function makeState() {
 export default function BattleNetLinkPage() {
   const clientId = process.env.BNET_CLIENT_ID;
   const region = process.env.BNET_REGION || "us";
-
-  if (!clientId) {
-    // If this ever hits on Vercel, it means BNET_CLIENT_ID isn't
-    // actually available at runtime.
-    throw new Error("BNET_CLIENT_ID is not set on the server");
-  }
-
   const baseUrl = getBaseUrl();
   const redirectUri = `${baseUrl}/api/bnet/callback`;
+
+  // If config is missing on the server, DON'T throw – just show it.
+  if (!clientId) {
+    return (
+      <main style={{ padding: "2rem", fontFamily: "system-ui" }}>
+        <h1>Battle.net config error</h1>
+        <p>
+          <code>BNET_CLIENT_ID</code> is <b>missing at runtime</b>.
+        </p>
+        <p>
+          Environment:{" "}
+          {process.env.VERCEL === "1" ? "Vercel (production)" : "Local/dev"}
+        </p>
+        <p>
+          Base URL I computed: <code>{baseUrl}</code>
+        </p>
+        <p>
+          Callback I will use: <code>{redirectUri}</code>
+        </p>
+        <p>
+          On Vercel, go to <b>Project → Settings → Environment Variables</b> and
+          make sure <code>BNET_CLIENT_ID</code> is defined for{" "}
+          <b>Production</b>, then redeploy.
+        </p>
+      </main>
+    );
+  }
 
   const authUrl = new URL(`https://${region}.battle.net/oauth/authorize`);
   authUrl.searchParams.set("client_id", clientId);
@@ -46,5 +65,6 @@ export default function BattleNetLinkPage() {
   authUrl.searchParams.set("scope", "wow.profile");
   authUrl.searchParams.set("state", makeState());
 
+  // If everything is good, send the user to Battle.net
   return redirect(authUrl.toString());
 }
