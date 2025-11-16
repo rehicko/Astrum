@@ -1,6 +1,5 @@
 // app/api/bnet/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -30,32 +29,32 @@ type WowProfileFromApi = {
   wow_accounts?: WowAccountFromApi[];
 };
 
-// ---- Helper: get Supabase user_id from auth cookie ----
-function getUserIdFromCookies(): string | null {
-  // Cast to any so TS stops complaining about get()/getAll()
-  const store: any = cookies();
+// ---- Helper: get Supabase user_id from request cookies ----
+function getUserIdFromRequest(req: NextRequest): string | null {
+  const cookieStore = req.cookies;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!supabaseUrl) return null;
 
-  // Extract the project ref from https://<ref>.supabase.co
+  // https://<ref>.supabase.co  ->  <ref>
   const match = supabaseUrl.match(/^https?:\/\/([^.]+)\.supabase\.co/);
   if (!match) return null;
   const projectRef = match[1];
 
   const cookieName = `sb-${projectRef}-auth-token`;
-  const authCookie = store.get(cookieName);
+  const authCookie = cookieStore.get(cookieName);
   if (!authCookie) return null;
 
   try {
     let accessToken: string | null = null;
+    const value = authCookie.value;
 
-    // If the cookie value looks like a JWT (aaa.bbb.ccc), use directly
-    if (authCookie.value.split(".").length === 3) {
-      accessToken = authCookie.value;
+    // If it looks like a JWT directly
+    if (value.split(".").length === 3) {
+      accessToken = value;
     } else {
-      // Otherwise assume it's JSON from auth-helpers with an access token inside
-      const parsed = JSON.parse(authCookie.value);
+      // Otherwise JSON wrapper with access_token inside
+      const parsed = JSON.parse(value);
       accessToken =
         parsed.access_token ??
         parsed.currentSession?.access_token ??
@@ -77,7 +76,7 @@ function getUserIdFromCookies(): string | null {
 }
 
 export async function GET(req: NextRequest) {
-  const userId = getUserIdFromCookies();
+  const userId = getUserIdFromRequest(req);
 
   if (!userId) {
     // No Supabase user in cookies -> send them to login
