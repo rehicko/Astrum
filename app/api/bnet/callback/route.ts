@@ -31,30 +31,30 @@ type WowProfileFromApi = {
 };
 
 // ---- Helper: get Supabase user_id from auth cookie ----
-async function getUserIdFromCookies(): Promise<string | null> {
-  // In newer Next versions cookies() returns a Promise
-  const store = await cookies();
-  const all = store.getAll();
+function getUserIdFromCookies(): string | null {
+  // Cast to any so TS stops complaining about get()/getAll()
+  const store: any = cookies();
 
-  // Try to find the Supabase auth cookie
-  const authCookie =
-    all.find(
-      (c: any) =>
-        typeof c.name === "string" &&
-        c.name.startsWith("sb-") &&
-        c.name.endsWith("-auth-token")
-    ) ?? all.find((c: any) => c.name === "sb-access-token");
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) return null;
 
+  // Extract the project ref from https://<ref>.supabase.co
+  const match = supabaseUrl.match(/^https?:\/\/([^.]+)\.supabase\.co/);
+  if (!match) return null;
+  const projectRef = match[1];
+
+  const cookieName = `sb-${projectRef}-auth-token`;
+  const authCookie = store.get(cookieName);
   if (!authCookie) return null;
 
   try {
     let accessToken: string | null = null;
 
-    // If the cookie value is already a JWT, use it directly
+    // If the cookie value looks like a JWT (aaa.bbb.ccc), use directly
     if (authCookie.value.split(".").length === 3) {
       accessToken = authCookie.value;
     } else {
-      // Otherwise assume JSON wrapper containing an access token
+      // Otherwise assume it's JSON from auth-helpers with an access token inside
       const parsed = JSON.parse(authCookie.value);
       accessToken =
         parsed.access_token ??
@@ -70,14 +70,14 @@ async function getUserIdFromCookies(): Promise<string | null> {
       Buffer.from(payload, "base64").toString("utf8")
     );
 
-    return (json.sub as string) ?? null;
+    return (json.sub as string) ?? null; // Supabase user id
   } catch {
     return null;
   }
 }
 
 export async function GET(req: NextRequest) {
-  const userId = await getUserIdFromCookies();
+  const userId = getUserIdFromCookies();
 
   if (!userId) {
     // No Supabase user in cookies -> send them to login
