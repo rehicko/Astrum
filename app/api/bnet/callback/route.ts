@@ -17,12 +17,15 @@ type WowAccountFromApi = {
 };
 
 type WowProfileFromApi = {
-  id?: string; // user/overall account id
+  id?: string; // user / overall account id
   wow_accounts?: WowAccountFromApi[];
 };
 
 export async function GET(req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies });
+  // IMPORTANT: wrap cookies for auth-helpers compatibility
+  const supabase = createRouteHandlerClient({
+    cookies: () => cookies(),
+  });
 
   const {
     data: { user },
@@ -38,7 +41,11 @@ export async function GET(req: NextRequest) {
 
   if (!code) {
     return NextResponse.json(
-      { status: "error", step: "missing_code", message: "No ?code in callback URL" },
+      {
+        status: "error",
+        step: "missing_code",
+        message: "No ?code in callback URL",
+      },
       { status: 400 }
     );
   }
@@ -71,7 +78,8 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         Authorization:
-          "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
+          "Basic " +
+          Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
@@ -107,7 +115,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 2) Fetch WoW profile
+    // 2) Fetch WoW profile from Blizzard
     const profileUrl = `https://${region}.api.blizzard.com/profile/user/wow?namespace=profile-${region}&locale=en_US&access_token=${encodeURIComponent(
       accessToken
     )}`;
@@ -128,7 +136,6 @@ export async function GET(req: NextRequest) {
     }
 
     const profileJson = (await profileRes.json()) as WowProfileFromApi;
-
     const wowAccounts = profileJson.wow_accounts ?? [];
 
     // 3) Flatten all characters across all accounts
@@ -162,7 +169,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // If no characters, just redirect back with info
+    // If no characters, just bounce back with info
     if (rowsToInsert.length === 0) {
       return NextResponse.redirect(
         new URL("/profile?bnet=linked&chars=0", req.url)
@@ -188,7 +195,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 5) Redirect back to profile – we’ll build the "pick main" UI there later
+    // 5) Redirect back to profile – later we'll add the "pick main" UI there
     return NextResponse.redirect(
       new URL("/profile?bnet=linked&chars=" + rowsToInsert.length, req.url)
     );
