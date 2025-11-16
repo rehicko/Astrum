@@ -4,13 +4,13 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-// ---- Supabase client (service role, server-only) ----
+// --- Supabase (service role) ---
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// ---- Types for Blizzard response ----
+// --- Types for Blizzard API ---
 type WowCharacterFromApi = {
   name: string;
   level: number;
@@ -29,59 +29,9 @@ type WowProfileFromApi = {
   wow_accounts?: WowAccountFromApi[];
 };
 
-// ---- Helper: get Supabase user_id from request cookies ----
-function getUserIdFromRequest(req: NextRequest): string | null {
-  const cookieStore = req.cookies;
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!supabaseUrl) return null;
-
-  // https://<ref>.supabase.co  ->  <ref>
-  const match = supabaseUrl.match(/^https?:\/\/([^.]+)\.supabase\.co/);
-  if (!match) return null;
-  const projectRef = match[1];
-
-  const cookieName = `sb-${projectRef}-auth-token`;
-  const authCookie = cookieStore.get(cookieName);
-  if (!authCookie) return null;
-
-  try {
-    let accessToken: string | null = null;
-    const value = authCookie.value;
-
-    // If it looks like a JWT directly
-    if (value.split(".").length === 3) {
-      accessToken = value;
-    } else {
-      // Otherwise JSON wrapper with access_token inside
-      const parsed = JSON.parse(value);
-      accessToken =
-        parsed.access_token ??
-        parsed.currentSession?.access_token ??
-        parsed.session?.access_token ??
-        null;
-    }
-
-    if (!accessToken) return null;
-
-    const [, payload] = accessToken.split(".");
-    const json = JSON.parse(
-      Buffer.from(payload, "base64").toString("utf8")
-    );
-
-    return (json.sub as string) ?? null; // Supabase user id
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(req: NextRequest) {
-  const userId = getUserIdFromRequest(req);
-
-  if (!userId) {
-    // No Supabase user in cookies -> send them to login
-    return NextResponse.redirect(new URL("/crossroads/login", req.url));
-  }
+  // DEV: hard-wire to Ajay's Supabase user id
+  const userId = "9f148901-0082-4869-9196-a7d921f78cfc";
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -185,7 +135,7 @@ export async function GET(req: NextRequest) {
     const profileJson = (await profileRes.json()) as WowProfileFromApi;
     const wowAccounts = profileJson.wow_accounts ?? [];
 
-    // 3) Flatten characters
+    // 3) Flatten characters for Supabase
     const rowsToInsert: {
       user_id: string;
       account_id: string | null;
@@ -216,13 +166,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // No characters found
     if (rowsToInsert.length === 0) {
       return NextResponse.redirect(
         new URL("/profile?bnet=linked&chars=0", req.url)
       );
     }
 
-    // 4) Clear old chars + insert fresh ones
+    // 4) Wipe existing chars for this user and insert fresh ones
     await supabase.from("wow_characters").delete().eq("user_id", userId);
 
     const { error: insertError } = await supabase
@@ -241,7 +192,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 5) Redirect back to profile
+    // 5) Redirect back to profile with count
     return NextResponse.redirect(
       new URL("/profile?bnet=linked&chars=" + rowsToInsert.length, req.url)
     );
