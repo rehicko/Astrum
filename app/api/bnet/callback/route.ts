@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
     });
 
     const tokenText = await tokenRes.text();
+
     if (!tokenRes.ok) {
       return NextResponse.json(
         {
@@ -104,7 +105,6 @@ export async function GET(req: NextRequest) {
       const tokenJson = JSON.parse(tokenText) as { access_token?: string };
       accessToken = tokenJson.access_token;
     } catch {
-      // token endpoint sometimes returns urlencoded; just in case
       const params = new URLSearchParams(tokenText);
       accessToken = params.get("access_token") ?? undefined;
     }
@@ -121,16 +121,19 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 2) Fetch WoW profile (this is where we are failing now)
-    const profileUrl = `https://${region}.api.blizzard.com/profile/user/wow?namespace=profile-${region}&locale=en_US&access_token=${encodeURIComponent(
-      accessToken
-    )}`;
+    // 2) Fetch WoW profile using Authorization header (no access_token in query)
+    const profileUrl = `https://${region}.api.blizzard.com/profile/user/wow?namespace=profile-${region}&locale=en_US`;
 
-    const profileRes = await fetch(profileUrl);
+    const profileRes = await fetch(profileUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    });
+
     const profileText = await profileRes.text();
 
     if (!profileRes.ok) {
-      // DEBUG: expose everything so we can see what Blizzard is saying
       return NextResponse.json(
         {
           status: "error",
