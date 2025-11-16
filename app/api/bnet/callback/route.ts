@@ -1,8 +1,17 @@
 // app/api/bnet/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createClient } from "@supabase/supabase-js";
 
+export const runtime = "nodejs";
+
+// ---- Supabase client (service role, server-only) ----
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// ---- Types for Blizzard response ----
 type WowCharacterFromApi = {
   name: string;
   level: number;
@@ -17,22 +26,61 @@ type WowAccountFromApi = {
 };
 
 type WowProfileFromApi = {
-  id?: string; // user / overall account id
+  id?: string;
   wow_accounts?: WowAccountFromApi[];
 };
 
+// ---- Helper: get Supabase user_id from auth cookie ----
+async function getUserIdFromCookies(): Promise<string | null> {
+  // In newer Next versions cookies() returns a Promise
+  const store = await cookies();
+  const all = store.getAll();
+
+  // Try to find the Supabase auth cookie
+  const authCookie =
+    all.find(
+      (c: any) =>
+        typeof c.name === "string" &&
+        c.name.startsWith("sb-") &&
+        c.name.endsWith("-auth-token")
+    ) ?? all.find((c: any) => c.name === "sb-access-token");
+
+  if (!authCookie) return null;
+
+  try {
+    let accessToken: string | null = null;
+
+    // If the cookie value is already a JWT, use it directly
+    if (authCookie.value.split(".").length === 3) {
+      accessToken = authCookie.value;
+    } else {
+      // Otherwise assume JSON wrapper containing an access token
+      const parsed = JSON.parse(authCookie.value);
+      accessToken =
+        parsed.access_token ??
+        parsed.currentSession?.access_token ??
+        parsed.session?.access_token ??
+        null;
+    }
+
+    if (!accessToken) return null;
+
+    const [, payload] = accessToken.split(".");
+    const json = JSON.parse(
+      Buffer.from(payload, "base64").toString("utf8")
+    );
+
+    return (json.sub as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
-  // IMPORTANT: wrap cookies for auth-helpers compatibility
-  const supabase = createRouteHandlerClient({
-    cookies: () => cookies(),
-  });
+  const userId = await getUserIdFromCookies();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
+  if (!userId) {
+    // No Supabase user in cookies -> send them to login
     return NextResponse.redirect(new URL("/crossroads/login", req.url));
   }
 
@@ -115,7 +163,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 2) Fetch WoW profile from Blizzard
+    // 2) Fetch WoW profile
     const profileUrl = `https://${region}.api.blizzard.com/profile/user/wow?namespace=profile-${region}&locale=en_US&access_token=${encodeURIComponent(
       accessToken
     )}`;
@@ -138,7 +186,7 @@ export async function GET(req: NextRequest) {
     const profileJson = (await profileRes.json()) as WowProfileFromApi;
     const wowAccounts = profileJson.wow_accounts ?? [];
 
-    // 3) Flatten all characters across all accounts
+    // 3) Flatten characters
     const rowsToInsert: {
       user_id: string;
       account_id: string | null;
@@ -156,7 +204,7 @@ export async function GET(req: NextRequest) {
       const chars = acct.characters ?? [];
       for (const c of chars) {
         rowsToInsert.push({
-          user_id: user.id,
+          user_id: userId,
           account_id: accountId,
           name: c.name,
           realm_slug: c.realm?.slug ?? "unknown",
@@ -169,15 +217,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // If no characters, just bounce back with info
     if (rowsToInsert.length === 0) {
       return NextResponse.redirect(
         new URL("/profile?bnet=linked&chars=0", req.url)
       );
     }
 
-    // 4) Clear old characters for this user and insert fresh ones
-    await supabase.from("wow_characters").delete().eq("user_id", user.id);
+    // 4) Clear old chars + insert fresh ones
+    await supabase.from("wow_characters").delete().eq("user_id", userId);
 
     const { error: insertError } = await supabase
       .from("wow_characters")
@@ -195,7 +242,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 5) Redirect back to profile – later we'll add the "pick main" UI there
+    // 5) Redirect back to profile
     return NextResponse.redirect(
       new URL("/profile?bnet=linked&chars=" + rowsToInsert.length, req.url)
     );
