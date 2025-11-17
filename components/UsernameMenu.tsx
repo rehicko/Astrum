@@ -3,10 +3,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { useProfileCard } from "@/components/ProfileCardProvider";
 
 type UsernameMenuProps = {
   name: string | null;
   messageId: string;
+  userId: string | null;
+  classicName: string | null;
+  classicRealm: string | null;
+  classicRegion: string | null;
+  classicFaction: string | null;
+  classicClass: string | null;
+  classicRace: string | null;
+  classicLevel: number | null;
+  joinedAt: string | null;
 };
 
 type MenuState = {
@@ -15,8 +25,21 @@ type MenuState = {
   y: number;
 };
 
-export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
+export function UsernameMenu({
+  name,
+  messageId,
+  userId,
+  classicName,
+  classicRealm,
+  classicRegion,
+  classicFaction,
+  classicClass,
+  classicRace,
+  classicLevel,
+  joinedAt,
+}: UsernameMenuProps) {
   const supabase = useMemo(() => createClient(), []);
+  const { openProfileCard } = useProfileCard();
   const safeName = name || "Anonymous";
 
   const [menu, setMenu] = useState<MenuState>({
@@ -77,8 +100,28 @@ export function UsernameMenu({ name, messageId }: UsernameMenuProps) {
   }, [menu.open]);
 
   const handleViewProfile = () => {
+    if (!userId) {
+      closeMenu();
+      alert("Profile not available for this message.");
+      return;
+    }
+
+    openProfileCard({
+      userId,
+      displayName: safeName,
+      classicName,
+      classicRealm,
+      classicRegion,
+      classicFaction,
+      classicClass,
+      classicRace,
+      classicLevel,
+      joinedAt,
+      anchorX: menu.x,
+      anchorY: menu.y,
+    });
+
     closeMenu();
-    alert("View Profile coming soon.");
   };
 
   const handleAddFriend = () => {

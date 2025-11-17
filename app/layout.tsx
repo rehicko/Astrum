@@ -6,6 +6,7 @@ import Link from "next/link";
 import "./globals.css";
 import { AppFooterClient } from "@/components/AppFooterClient";
 import { HeaderAuth } from "@/components/HeaderAuth";
+import { ProfileCardProvider } from "@/components/ProfileCardProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -67,11 +68,16 @@ export default function RootLayout({
       <body
         className={`${inter.className} bg-black text-white antialiased`}
       >
-        <div className="flex min-h-screen flex-col">
-          <AppHeader />
-          <main className="flex-1">{children}</main>
-          <AppFooterClient year={year} />
-        </div>
+        <ProfileCardProvider>
+          {/* Portal target for mini profile cards */}
+          <div id="astrum-profile-card-root" />
+
+          <div className="flex min-h-screen flex-col">
+            <AppHeader />
+            <main className="flex-1">{children}</main>
+            <AppFooterClient year={year} />
+          </div>
+        </ProfileCardProvider>
       </body>
     </html>
   );

@@ -12,10 +12,19 @@ import { UsernameMenu } from "@/components/UsernameMenu";
 
 type FeedMessage = {
   id: string;
+  user_id: string | null;
   channel: string;
   content: string;
   created_at: string;
   display_name: string | null;
+  classic_name: string | null;
+  classic_realm: string | null;
+  classic_region: string | null;
+  classic_faction: string | null;
+  classic_class: string | null;
+  classic_race: string | null;
+  classic_level: number | null;
+  joined_at: string | null;
   optimistic?: boolean;
   status?: "pending" | "failed" | "sent";
 };
@@ -120,6 +129,9 @@ export default function Chat({ channel }: Props) {
     };
   }, [supabase]);
 
+  const feedSelect =
+    "id, user_id, channel, content, created_at, display_name, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level, joined_at";
+
   // 📥 Initial load from VIEW: message_feed
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +141,7 @@ export default function Chat({ channel }: Props) {
     (async () => {
       const { data, error } = await supabase
         .from("message_feed")
-        .select("id, channel, content, created_at, display_name")
+        .select(feedSelect)
         .eq("channel", channel)
         .order("created_at", { ascending: true })
         .limit(MAX_HISTORY);
@@ -152,7 +164,7 @@ export default function Chat({ channel }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [channel, supabase, scrollBottom]);
+  }, [channel, supabase, scrollBottom, feedSelect]);
 
   // 🔴 Realtime: listen on messages, hydrate from message_feed
   useEffect(() => {
@@ -176,7 +188,7 @@ export default function Chat({ channel }: Props) {
 
           const { data, error } = await supabase
             .from("message_feed")
-            .select("id, channel, content, created_at, display_name")
+            .select(feedSelect)
             .eq("id", row.id)
             .single();
 
@@ -209,7 +221,7 @@ export default function Chat({ channel }: Props) {
         realtimeRef.current = null;
       }
     };
-  }, [channel, supabase, scrollBottom]);
+  }, [channel, supabase, scrollBottom, feedSelect]);
 
   // Fallback display name: "Guest" when null/empty (we'll leave "Anonymous" as-is)
   const renderName = (m: FeedMessage) =>
@@ -240,10 +252,19 @@ export default function Chat({ channel }: Props) {
     const optimisticId = `opt_${Date.now()}`;
     const optimistic: FeedMessage = {
       id: optimisticId,
+      user_id: userId,
       channel,
       content,
       created_at: new Date().toISOString(),
       display_name: "You",
+      classic_name: null,
+      classic_realm: null,
+      classic_region: null,
+      classic_faction: null,
+      classic_class: null,
+      classic_race: null,
+      classic_level: null,
+      joined_at: null,
       optimistic: true,
       status: "pending",
     };
@@ -427,6 +448,15 @@ export default function Chat({ channel }: Props) {
                         <UsernameMenu
                           name={renderName(m)}
                           messageId={m.id}
+                          userId={m.user_id}
+                          classicName={m.classic_name}
+                          classicRealm={m.classic_realm}
+                          classicRegion={m.classic_region}
+                          classicFaction={m.classic_faction}
+                          classicClass={m.classic_class}
+                          classicRace={m.classic_race}
+                          classicLevel={m.classic_level}
+                          joinedAt={m.joined_at}
                         />
                       </span>
                       <span className="text-neutral-500 mx-2">→</span>

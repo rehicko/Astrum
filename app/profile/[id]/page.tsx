@@ -1,0 +1,397 @@
+// app/profile/[id]/page.tsx
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@/lib/supabaseClient";
+
+type Profile = {
+  id: string;
+  display_name: string | null;
+  bio: string | null;
+  classic_name: string | null;
+  classic_realm: string | null;
+  classic_region: string | null;
+  classic_faction: string | null;
+  classic_class: string | null;
+  classic_race: string | null;
+  classic_level: number | null;
+  created_at: string | null;
+};
+
+type FeedMessage = {
+  id: string;
+  channel: string;
+  content: string;
+  created_at: string;
+};
+
+type TabKey = "overview" | "messages" | "about";
+
+function formatJoinDate(created_at: string | null) {
+  if (!created_at) return null;
+  const d = new Date(created_at);
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatTime(dateString: string) {
+  const d = new Date(dateString);
+  return d.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatFullTimestamp(dateString: string) {
+  const d = new Date(dateString);
+  return d.toLocaleString();
+}
+
+export default function PublicProfilePage() {
+  const supabase = useMemo(() => createClient(), []);
+  const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const userId = (params?.id as string) || "";
+
+  const [tab, setTab] = useState<TabKey>("overview");
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [messages, setMessages] = useState<FeedMessage[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // Sync tab with ?section=
+  useEffect(() => {
+    const section = searchParams.get("section");
+    if (section === "messages" || section === "about") {
+      setTab(section);
+    } else {
+      setTab("overview");
+    }
+  }, [searchParams]);
+
+  // Click handler to change tab + URL
+  const handleTabChange = (next: TabKey) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (next === "overview") {
+      sp.delete("section");
+    } else {
+      sp.set("section", next);
+    }
+    router.push(`/profile/${userId}?${sp.toString()}`, { scroll: false });
+  };
+
+  // Load profile
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+    setLoadingProfile(true);
+    setError(null);
+
+    (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(
+          "id, display_name, bio, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level, created_at"
+        )
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("public profile load error:", error);
+        setError("Failed to load profile.");
+        setProfile(null);
+      } else if (!data) {
+        setError("Traveler not found.");
+        setProfile(null);
+      } else {
+        setProfile(data as Profile);
+      }
+
+      setLoadingProfile(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, userId]);
+
+  // Load recent messages (last 50)
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+    setLoadingMessages(true);
+
+    (async () => {
+      const { data, error } = await supabase
+        .from("message_feed")
+        .select("id, channel, content, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("public profile messages error:", error);
+        setMessages([]);
+      } else {
+        setMessages((data ?? []) as FeedMessage[]);
+      }
+
+      setLoadingMessages(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, userId]);
+
+  const joinDate = formatJoinDate(profile?.created_at ?? null);
+
+  const classicPrimaryLine =
+    profile?.classic_name &&
+    [
+      profile.classic_name,
+      "—",
+      profile.classic_level ? String(profile.classic_level) : null,
+      profile.classic_race,
+      profile.classic_class,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+  const classicRealmLine =
+    profile?.classic_realm || profile?.classic_region
+      ? [
+          profile?.classic_realm,
+          profile?.classic_region
+            ? `(${profile.classic_region})`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : null;
+
+  const titleName =
+    profile?.display_name && profile.display_name.trim().length > 0
+      ? profile.display_name
+      : "Traveler";
+
+  return (
+    <div className="min-h-screen bg-black text-white">
+      <div className="mx-auto max-w-4xl px-4 py-10">
+        {/* Header */}
+        <div className="mb-8 border-b border-neutral-900 pb-6">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-neutral-500 mb-2">
+            Astrum Profile
+          </p>
+          <h1 className="text-2xl font-semibold text-neutral-50">
+            {loadingProfile ? "Loading…" : titleName}
+          </h1>
+
+          {profile && (
+            <div className="mt-3 space-y-1 text-sm text-neutral-300">
+              {classicPrimaryLine ? (
+                <p className="text-neutral-200">
+                  {classicPrimaryLine}
+                </p>
+              ) : (
+                <p className="text-neutral-500 text-[13px]">
+                  This traveler hasn&apos;t set a Classic main yet.
+                </p>
+              )}
+              {classicRealmLine && (
+                <p className="text-neutral-400 text-[13px]">
+                  {classicRealmLine}
+                </p>
+              )}
+              {joinDate && (
+                <p className="text-neutral-500 text-[12px]">
+                  Joined Astrum: {joinDate}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Error / not found */}
+        {error && !loadingProfile && (
+          <div className="text-sm text-red-400 mb-8">{error}</div>
+        )}
+
+        {/* Tabs */}
+        <div className="mb-6 flex border-b border-neutral-900 text-[12px]">
+          {(
+            [
+              ["overview", "Overview"],
+              ["messages", "Recent Messages"],
+              ["about", "About"],
+            ] as [TabKey, string][]
+          ).map(([key, label]) => {
+            const active = tab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleTabChange(key)}
+                className={`mr-6 pb-2 border-b-2 ${
+                  active
+                    ? "border-sky-400 text-neutral-50"
+                    : "border-transparent text-neutral-500 hover:text-neutral-200"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab content */}
+        <div className="space-y-6">
+          {/* Overview */}
+          {tab === "overview" && (
+            <div className="rounded-2xl border border-neutral-900 bg-neutral-950/80 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
+              {loadingProfile ? (
+                <p className="text-sm text-neutral-400">
+                  Loading profile…
+                </p>
+              ) : !profile ? (
+                <p className="text-sm text-neutral-400">
+                  No profile data available.
+                </p>
+              ) : (
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-1">
+                      Classic Main
+                    </p>
+                    {classicPrimaryLine ? (
+                      <>
+                        <p className="text-neutral-100">
+                          {classicPrimaryLine}
+                        </p>
+                        {classicRealmLine && (
+                          <p className="text-neutral-400 text-[13px]">
+                            {classicRealmLine}
+                          </p>
+                        )}
+                        {profile.classic_faction && (
+                          <p className="mt-1 text-[11px] text-neutral-500">
+                            Faction: {profile.classic_faction}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-neutral-500 text-[13px]">
+                        No Classic main set yet.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-3 border-t border-neutral-900">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-1">
+                      Status
+                    </p>
+                    <p className="text-neutral-400 text-[13px]">
+                      Friends and whispers are coming in Astrum v0.2.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Recent Messages */}
+          {tab === "messages" && (
+            <div className="rounded-2xl border border-neutral-900 bg-neutral-950/80 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-3">
+                Recent Messages (last 50)
+              </p>
+              {loadingMessages ? (
+                <p className="text-sm text-neutral-400">
+                  Loading messages…
+                </p>
+              ) : messages.length === 0 ? (
+                <p className="text-sm text-neutral-400">
+                  This traveler hasn&apos;t spoken in Astrum yet.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                  {messages.map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex items-start gap-3 text-sm leading-relaxed"
+                    >
+                      <span
+                        className="mt-0.5 w-20 shrink-0 text-right text-[11px] text-neutral-500"
+                        title={formatFullTimestamp(m.created_at)}
+                      >
+                        {formatTime(m.created_at)}
+                      </span>
+                      <div className="flex-1">
+                        <span className="text-[11px] uppercase tracking-[0.16em] text-sky-400/80 mr-2">
+                          {m.channel === "global"
+                            ? "Global"
+                            : m.channel}
+                        </span>
+                        <span className="text-neutral-200 break-words">
+                          {m.content}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* About */}
+          {tab === "about" && (
+            <div className="rounded-2xl border border-neutral-900 bg-neutral-950/80 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-3">
+                About
+              </p>
+              {loadingProfile ? (
+                <p className="text-sm text-neutral-400">
+                  Loading profile…
+                </p>
+              ) : !profile ? (
+                <p className="text-sm text-neutral-400">
+                  No profile data available.
+                </p>
+              ) : (
+                <div className="space-y-3 text-sm text-neutral-200">
+                  {profile.bio && profile.bio.trim().length > 0 ? (
+                    <p className="whitespace-pre-line">
+                      {profile.bio}
+                    </p>
+                  ) : (
+                    <p className="text-neutral-500 text-[13px]">
+                      This traveler hasn&apos;t written a bio yet.
+                    </p>
+                  )}
+                  {joinDate && (
+                    <p className="text-[12px] text-neutral-500">
+                      Joined Astrum: {joinDate}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
