@@ -1,12 +1,12 @@
 // app/crossroads/[channel]/page.tsx
 import Chat from "@/components/Chat";
+import ChannelSidebar from "@/components/ChannelSidebar";
 import { SUPPORTED_CHANNELS } from "@/lib/constants";
 
-// In Next 15, params is a Promise in server components.
 type Props = { params: Promise<{ channel: string }> };
 
 export default async function ChannelPage({ params }: Props) {
-  const { channel: raw } = await params; // <- await params
+  const { channel: raw } = await params;
   const slug = (raw ?? "").toLowerCase();
 
   const channel = (SUPPORTED_CHANNELS as readonly string[]).includes(slug)
@@ -14,8 +14,14 @@ export default async function ChannelPage({ params }: Props) {
     : "global";
 
   return (
-    <div className="flex flex-col h-full">
-      <Chat channel={channel} />
+    <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Left: sidebar (fixed in place) */}
+      <ChannelSidebar />
+
+      {/* Right: chat (will handle its own internal scroll) */}
+      <div className="flex-1 min-h-0 flex">
+        <Chat channel={channel} />
+      </div>
     </div>
   );
 }

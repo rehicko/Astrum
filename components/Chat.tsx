@@ -1,7 +1,14 @@
 // components/Chat.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  CSSProperties,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
@@ -25,11 +32,42 @@ type FeedMessage = {
   classic_race: string | null;
   classic_level: number | null;
   joined_at: string | null;
+  class_color_hex: string | null;
+  use_class_color: boolean | null;
   optimistic?: boolean;
   status?: "pending" | "failed" | "sent";
 };
 
 type Props = { channel: string };
+
+type RankSummary = {
+  level: number;
+  xp: number;
+  displayTitle: string | null;
+  showTitle: boolean;
+};
+
+// 🔢 Max messages kept in memory per channel (5k-prep knob)
+const MAX_IN_MEMORY = MAX_HISTORY;
+
+// px from bottom that counts as "at bottom" for auto-follow
+const BOTTOM_THRESHOLD = 80;
+
+// px from bottom that counts as "close enough" to snap on *send*
+const SEND_SNAP_THRESHOLD = 180;
+
+// WoW-style class colors (TBC / classic)
+const CLASS_COLOR_MAP: Record<string, string> = {
+  Warrior: "#C79C6E",
+  Paladin: "#F58CBA",
+  Hunter: "#ABD473",
+  Rogue: "#FFF569",
+  Priest: "#FFFFFF",
+  Shaman: "#0070DE",
+  Mage: "#40C7EB",
+  Warlock: "#8787ED",
+  Druid: "#FF7D0A",
+};
 
 // ------ Time helpers ------
 
@@ -83,54 +121,95 @@ export default function Chat({ channel }: Props) {
   const [userPresent, setUserPresent] = useState(false);
   const [errText, setErrText] = useState<string | null>(null);
 
+  const [rank, setRank] = useState<RankSummary | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  const [atBottom, setAtBottom] = useState(true);
+  const [hasNewBelow, setHasNewBelow] = useState(false);
+
   const listRef = useRef<HTMLDivElement>(null);
   const realtimeRef = useRef<RealtimeChannel | null>(null);
+  const lastDistanceFromBottomRef = useRef(0);
 
-  // Smart scroll-to-bottom: only if user is near bottom unless forced
-  const scrollBottom = useCallback((force: boolean = false) => {
+  // Scroll to bottom helper
+  const scrollBottom = useCallback(() => {
     requestAnimationFrame(() => {
       const el = listRef.current;
       if (!el) return;
-
-      const distanceFromBottom =
-        el.scrollHeight - el.scrollTop - el.clientHeight;
-
-      const threshold = 80; // px from bottom to still auto-scroll
-
-      if (!force && distanceFromBottom > threshold) {
-        // user has scrolled up; don't yank them down
-        return;
-      }
-
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: "smooth",
-      });
+      el.scrollTop = el.scrollHeight;
     });
   }, []);
 
-  // Track manual scrolling to affect auto-scroll behavior
+  // Track manual scrolling and whether user is at the bottom
   const handleScroll = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
-    // No extra state needed right now; scrollBottom uses distance check.
+
+    const distanceFromBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight;
+
+    lastDistanceFromBottomRef.current = distanceFromBottom;
+
+    const isAtBottom = distanceFromBottom <= BOTTOM_THRESHOLD;
+    setAtBottom(isAtBottom);
+
+    if (isAtBottom) {
+      setHasNewBelow(false);
+    }
   }, []);
 
-  // 🔐 Auth state
+  // 🔐 Auth state + user id
   useEffect(() => {
     let mounted = true;
     (async () => {
       const { data } = await supabase.auth.getSession();
       if (!mounted) return;
-      setUserPresent(Boolean(data.session));
+
+      const session = data.session;
+      setUserPresent(Boolean(session));
+
+      if (session) {
+        setCurrentUserId(session.user.id);
+      } else {
+        setCurrentUserId(null);
+      }
     })();
     return () => {
       mounted = false;
     };
   }, [supabase]);
 
+  // 🔁 Load rank summary for the current user
+  const refreshRank = useCallback(
+    async (userId: string) => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("level, xp, display_title, show_title")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error || !data) {
+        console.warn("rank load error:", error);
+        return;
+      }
+
+      setRank({
+        level: data.level ?? 1,
+        xp: data.xp ?? 0,
+        displayTitle: data.display_title ?? null,
+        showTitle: data.show_title ?? false,
+      });
+    },
+    [supabase]
+  );
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    void refreshRank(currentUserId);
+  }, [currentUserId, refreshRank]);
+
   const feedSelect =
-    "id, user_id, channel, content, created_at, display_name, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level, joined_at";
+    "id, user_id, channel, content, created_at, display_name, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level, joined_at, class_color_hex, use_class_color";
 
   // 📥 Initial load from VIEW: message_feed
   useEffect(() => {
@@ -144,7 +223,7 @@ export default function Chat({ channel }: Props) {
         .select(feedSelect)
         .eq("channel", channel)
         .order("created_at", { ascending: true })
-        .limit(MAX_HISTORY);
+        .limit(MAX_IN_MEMORY);
 
       if (cancelled) return;
 
@@ -158,13 +237,19 @@ export default function Chat({ channel }: Props) {
 
       setMessages((data ?? []) as FeedMessage[]);
       setLoading(false);
-      scrollBottom(true); // force scroll on initial load
+
+      // On first load, always go to bottom
+      setTimeout(() => {
+        scrollBottom();
+        setAtBottom(true);
+        lastDistanceFromBottomRef.current = 0;
+      }, 0);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [channel, supabase, scrollBottom, feedSelect]);
+  }, [channel, supabase, feedSelect, scrollBottom]);
 
   // 🔴 Realtime: listen on messages, hydrate from message_feed
   useEffect(() => {
@@ -200,15 +285,21 @@ export default function Chat({ channel }: Props) {
           const msg = data as FeedMessage;
 
           setMessages((prev) => {
-            // remove any optimistic echo with same content
             const base = prev.filter(
               (m) =>
                 !m.optimistic || m.content.trim() !== msg.content.trim()
             );
-            return ensureUniqueById([...base, msg]).slice(-MAX_HISTORY);
+            return ensureUniqueById([...base, msg]).slice(-MAX_IN_MEMORY);
           });
 
-          scrollBottom(); // auto-scroll only if user near bottom
+          // If user is at bottom, auto-scroll.
+          // If they're scrolled up, don't yank them; show "new messages" pill.
+          if (atBottom) {
+            scrollBottom();
+            lastDistanceFromBottomRef.current = 0;
+          } else {
+            setHasNewBelow(true);
+          }
         }
       )
       .subscribe();
@@ -221,13 +312,32 @@ export default function Chat({ channel }: Props) {
         realtimeRef.current = null;
       }
     };
-  }, [channel, supabase, scrollBottom, feedSelect]);
+  }, [channel, supabase, feedSelect, atBottom, scrollBottom]);
 
   // Fallback display name: "Guest" when null/empty (we'll leave "Anonymous" as-is)
   const renderName = (m: FeedMessage) =>
     m.display_name && m.display_name.trim().length > 0
       ? m.display_name
       : "Guest";
+
+  // Decide what color the name should be
+  const getNameColorHex = (m: FeedMessage): string | undefined => {
+    // If user explicitly turned class color OFF, respect that
+    if (m.use_class_color === false) return undefined;
+
+    // Prefer whatever the view sends us
+    if (m.class_color_hex && m.class_color_hex.trim().length > 0) {
+      return m.class_color_hex;
+    }
+
+    // Fallback: derive from WoW class if present
+    if (!m.classic_class) return undefined;
+
+    const hex =
+      CLASS_COLOR_MAP[m.classic_class as keyof typeof CLASS_COLOR_MAP];
+
+    return hex || undefined;
+  };
 
   // ✉️ Send message -> pending queue -> AI moderation -> messages
   const sendMessage = useCallback(async () => {
@@ -244,6 +354,10 @@ export default function Chat({ channel }: Props) {
     }
 
     const userId = session.user.id;
+
+    // if you're reasonably close to the bottom, snapping is allowed
+    const distance = lastDistanceFromBottomRef.current;
+    const shouldSnap = distance <= SEND_SNAP_THRESHOLD;
 
     setSending(true);
     setErrText(null);
@@ -265,15 +379,23 @@ export default function Chat({ channel }: Props) {
       classic_race: null,
       classic_level: null,
       joined_at: null,
+      class_color_hex: null,
+      use_class_color: null,
       optimistic: true,
       status: "pending",
     };
 
     setMessages((prev) =>
-      ensureUniqueById([...prev, optimistic]).slice(-MAX_HISTORY)
+      ensureUniqueById([...prev, optimistic]).slice(-MAX_IN_MEMORY)
     );
     setText("");
-    scrollBottom(true); // always show your own new message
+
+    if (shouldSnap) {
+      scrollBottom();
+      setAtBottom(true);
+      setHasNewBelow(false);
+      lastDistanceFromBottomRef.current = 0;
+    }
 
     // Insert into pending queue with GLOBAL channel UUID + user_id
     const {
@@ -298,7 +420,6 @@ export default function Chat({ channel }: Props) {
           : `Send failed: ${error?.message ?? "Unknown error"}`
       );
 
-      // mark optimistic as failed
       setMessages((prev) =>
         prev.map((m) =>
           m.id === optimisticId
@@ -324,7 +445,6 @@ export default function Chat({ channel }: Props) {
       .then(async (res) => {
         if (!res.ok) {
           console.error("Moderation request failed:", res.status);
-          // treat as failure
           setMessages((prev) =>
             prev.map((m) =>
               m.id === optimisticId
@@ -342,12 +462,12 @@ export default function Chat({ channel }: Props) {
 
         const payload = await res.json();
 
-        // If AI rejected it, remove the optimistic bubble
         if (payload.status === "rejected") {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
           setErrText("Message blocked by moderation.");
+        } else if (payload.status === "approved" && userId) {
+          void refreshRank(userId);
         }
-        // If approved, realtime INSERT on `messages` will replace the optimistic echo.
       })
       .catch((err) => {
         console.error("Failed to call moderation endpoint:", err);
@@ -365,9 +485,8 @@ export default function Chat({ channel }: Props) {
         setErrText("Message failed moderation.");
       });
 
-    // Allow user to send another message while AI runs
     setSending(false);
-  }, [channel, text, supabase, sending, scrollBottom, router]);
+  }, [text, sending, supabase, router, refreshRank, channel, scrollBottom]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -379,105 +498,130 @@ export default function Chat({ channel }: Props) {
     [sendMessage]
   );
 
-  const channelLabel =
-    channel === "GLOBAL"
-      ? "Global"
-      : channel.charAt(0).toUpperCase() + channel.slice(1);
-
   const inputPlaceholder =
     channel === "GLOBAL" ? "Message Astrum…" : `Message #${channel}`;
+
+  // Nicely formatted rank line text
+  const rankLine = useMemo(() => {
+    if (!rank) return null;
+    const parts: string[] = [];
+    parts.push(`Level ${rank.level}`);
+    if (rank.showTitle && rank.displayTitle) {
+      parts.push(rank.displayTitle);
+    }
+    parts.push(`${rank.xp} XP`);
+    return parts.join(" • ");
+  }, [rank]);
 
   // ------ Render ------
 
   return (
-    <div className="flex-1 flex flex-col">
-      {/* Mini channel header */}
-      <div className="border-b border-neutral-900 px-4 py-2">
-        <div className="text-[11px] font-semibold tracking-[0.18em] text-neutral-400 uppercase">
-          Astrum / {channelLabel}
-        </div>
-        <div className="mt-1 text-[11px] text-neutral-500">
-          {channel === "GLOBAL"
-            ? "Live public feed. Anyone can watch — sign in to speak."
-            : "Channel"}
-        </div>
-      </div>
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Messages area + "new messages" pill */}
+      <div className="flex-1 min-h-0 relative">
+        <div
+          ref={listRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto astrum-scroll px-4 pt-3 pb-20 space-y-2"
+        >
+          {loading ? (
+            <div className="text-sm text-neutral-400">Loading messages…</div>
+          ) : messages.length === 0 ? (
+            <div className="text-sm text-neutral-400">No messages yet.</div>
+          ) : (
+            (() => {
+              let lastDayKey = "";
+              return messages.map((m) => {
+                const dayKey = getDayKey(m.created_at);
+                const showDivider = dayKey !== lastDayKey;
+                if (showDivider) {
+                  lastDayKey = dayKey;
+                }
 
-      {/* Messages */}
-      <div
-        ref={listRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
-      >
-        {loading ? (
-          <div className="text-sm text-neutral-400">Loading messages…</div>
-        ) : messages.length === 0 ? (
-          <div className="text-sm text-neutral-400">No messages yet.</div>
-        ) : (
-          (() => {
-            let lastDayKey = "";
-            return messages.map((m) => {
-              const dayKey = getDayKey(m.created_at);
-              const showDivider = dayKey !== lastDayKey;
-              if (showDivider) {
-                lastDayKey = dayKey;
-              }
+                const isOptimisticPending =
+                  m.optimistic && m.status !== "failed";
 
-              return (
-                <div key={m.id} className="space-y-2">
-                  {showDivider && (
-                    <div className="my-2 flex items-center gap-3 text-[11px] text-neutral-500">
-                      <div className="h-px flex-1 bg-neutral-800" />
-                      <span>{getDayLabel(m.created_at)}</span>
-                      <div className="h-px flex-1 bg-neutral-800" />
-                    </div>
-                  )}
-                  <div className="flex items-start gap-2 text-sm leading-relaxed">
-                    <span
-                      className="mt-0.5 w-16 shrink-0 text-right text-[11px] text-neutral-500"
-                      title={formatFullTimestamp(m.created_at)}
-                    >
-                      {formatTime(m.created_at)}
-                    </span>
-                    <div className="flex-1">
+                const colorHex = getNameColorHex(m);
+                const nameColorStyle: CSSProperties | undefined = colorHex
+                  ? { color: colorHex }
+                  : undefined;
+
+                return (
+                  <div key={m.id} className="space-y-1.5">
+                    {showDivider && (
+                      <div className="my-2 flex items-center gap-3 text-[11px] text-neutral-500">
+                        <div className="h-px flex-1 bg-neutral-800" />
+                        <span>{getDayLabel(m.created_at)}</span>
+                        <div className="h-px flex-1 bg-neutral-800" />
+                      </div>
+                    )}
+                    <div className="flex items-start gap-2 text-sm leading-relaxed">
                       <span
-                        className={
-                          m.optimistic ? "text-amber-400" : "text-sky-400"
-                        }
+                        className="mt-0.5 w-16 shrink-0 text-right text-[11px] text-neutral-500"
+                        title={formatFullTimestamp(m.created_at)}
                       >
-                        <UsernameMenu
-                          name={renderName(m)}
-                          messageId={m.id}
-                          userId={m.user_id}
-                          classicName={m.classic_name}
-                          classicRealm={m.classic_realm}
-                          classicRegion={m.classic_region}
-                          classicFaction={m.classic_faction}
-                          classicClass={m.classic_class}
-                          classicRace={m.classic_race}
-                          classicLevel={m.classic_level}
-                          joinedAt={m.joined_at}
-                        />
+                        {formatTime(m.created_at)}
                       </span>
-                      <span className="text-neutral-500 mx-2">→</span>
-                      <span
-                        className={`text-neutral-200 break-words ${
-                          m.optimistic ? "italic opacity-80" : ""
-                        }`}
-                      >
-                        {m.content}
-                      </span>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="inline-flex items-center gap-1 text-[13px] font-medium text-sky-400"
+                            style={nameColorStyle}
+                          >
+                            <UsernameMenu
+                              name={renderName(m)}
+                              messageId={m.id}
+                              userId={m.user_id}
+                              classicName={m.classic_name}
+                              classicRealm={m.classic_realm}
+                              classicRegion={m.classic_region}
+                              classicFaction={m.classic_faction}
+                              classicClass={m.classic_class}
+                              classicRace={m.classic_race}
+                              classicLevel={m.classic_level}
+                              joinedAt={m.joined_at}
+                            />
+                            {isOptimisticPending && (
+                              <span className="ml-1 inline-flex items-center">
+                                <span
+                                  className="h-1.5 w-1.5 rounded-full bg-amber-400/90 animate-pulse"
+                                  aria-hidden="true"
+                                />
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-neutral-500 mx-1.5">→</span>
+                          <span className="text-neutral-200 break-words">
+                            {m.content}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            });
-          })()
+                );
+              });
+            })()
+          )}
+        </div>
+
+        {hasNewBelow && !atBottom && (
+          <button
+            type="button"
+            onClick={() => {
+              scrollBottom();
+              setHasNewBelow(false);
+              setAtBottom(true);
+              lastDistanceFromBottomRef.current = 0;
+            }}
+            className="absolute right-6 bottom-24 px-3 py-1.5 rounded-full bg-sky-500/90 hover:bg-sky-400 text-[11px] font-medium text-black shadow-[0_8px_30px_rgba(0,0,0,0.7)]"
+          >
+            New messages ↓
+          </button>
         )}
       </div>
 
-      {/* Composer - sticky at bottom */}
-      <div className="sticky bottom-0 border-t border-neutral-800 px-4 py-3 space-y-2 bg-black">
+      {/* Composer - pinned under the scroll area */}
+      <div className="border-t border-neutral-800 px-4 py-3 space-y-2 bg-black">
         {errText && <div className="text-xs text-red-400">{errText}</div>}
         {userPresent ? (
           <>
@@ -500,6 +644,12 @@ export default function Chat({ channel }: Props) {
                 Send
               </button>
             </div>
+
+            {rankLine && (
+              <div className="mt-1 text-[11px] text-neutral-500">
+                {rankLine}
+              </div>
+            )}
           </>
         ) : (
           <div className="flex items-center justify-between gap-3">

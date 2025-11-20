@@ -30,7 +30,6 @@ function AppHeader() {
           </span>
         </Link>
 
-        {/* Nav + auth */}
         <nav className="flex items-center gap-6 text-[11px] font-medium text-white/55">
           <Link
             href="/crossroads/global"
@@ -48,7 +47,6 @@ function AppHeader() {
             FAQ
           </Link>
 
-          {/* Sign in / Sign out */}
           <HeaderAuth />
         </nav>
       </div>
@@ -65,16 +63,16 @@ export default function RootLayout({
 
   return (
     <html lang="en">
-      <body
-        className={`${inter.className} bg-black text-white antialiased`}
-      >
+      <body className={`${inter.className} bg-black text-white antialiased`}>
         <ProfileCardProvider>
-          {/* Portal target for mini profile cards */}
           <div id="astrum-profile-card-root" />
 
-          <div className="flex min-h-screen flex-col">
+          {/* App shell locked to viewport height */}
+          <div className="flex h-screen flex-col">
             <AppHeader />
-            <main className="flex-1">{children}</main>
+            <main className="flex-1 min-h-0 flex flex-col">
+              {children}
+            </main>
             <AppFooterClient year={year} />
           </div>
         </ProfileCardProvider>

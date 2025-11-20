@@ -17,6 +17,12 @@ type Profile = {
   classic_race: string | null;
   classic_level: number | null;
   created_at: string | null;
+  // New fields for Astrum ranks
+  xp: number | null;
+  level: number | null;
+  highest_title: string | null;
+  display_title: string | null;
+  show_title: boolean | null;
 };
 
 type FeedMessage = {
@@ -49,6 +55,25 @@ function formatTime(dateString: string) {
 function formatFullTimestamp(dateString: string) {
   const d = new Date(dateString);
   return d.toLocaleString();
+}
+
+// Single source of truth for how titles are shown everywhere
+function getDisplayTitle(profile: Profile | null): string | null {
+  if (!profile) return null;
+  // If user has explicitly turned titles off, nothing is shown
+  if (profile.show_title === false) return null;
+
+  const explicit =
+    profile.display_title && profile.display_title.trim().length > 0
+      ? profile.display_title.trim()
+      : null;
+
+  const highest =
+    profile.highest_title && profile.highest_title.trim().length > 0
+      ? profile.highest_title.trim()
+      : null;
+
+  return explicit ?? highest ?? null;
 }
 
 export default function PublicProfilePage() {
@@ -99,7 +124,24 @@ export default function PublicProfilePage() {
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id, display_name, bio, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level, created_at"
+          `
+          id,
+          display_name,
+          bio,
+          classic_name,
+          classic_realm,
+          classic_region,
+          classic_faction,
+          classic_class,
+          classic_race,
+          classic_level,
+          created_at,
+          xp,
+          level,
+          highest_title,
+          display_title,
+          show_title
+        `
         )
         .eq("id", userId)
         .maybeSingle();
@@ -175,9 +217,7 @@ export default function PublicProfilePage() {
     profile?.classic_realm || profile?.classic_region
       ? [
           profile?.classic_realm,
-          profile?.classic_region
-            ? `(${profile.classic_region})`
-            : null,
+          profile?.classic_region ? `(${profile.classic_region})` : null,
         ]
           .filter(Boolean)
           .join(" ")
@@ -187,6 +227,10 @@ export default function PublicProfilePage() {
     profile?.display_name && profile.display_name.trim().length > 0
       ? profile.display_name
       : "Traveler";
+
+  const effectiveTitle = getDisplayTitle(profile);
+  const level = profile?.level ?? null;
+  const xp = profile?.xp ?? null;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -200,12 +244,37 @@ export default function PublicProfilePage() {
             {loadingProfile ? "Loading…" : titleName}
           </h1>
 
+          {/* Rank line: Level + Title + XP (shared logic with MiniProfileCard later) */}
+          {profile && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-neutral-400">
+              {typeof level === "number" && (
+                <span className="text-neutral-300">
+                  Level {level}
+                </span>
+              )}
+              {effectiveTitle && (
+                <>
+                  <span className="text-neutral-700">•</span>
+                  <span className="text-neutral-100">
+                    {effectiveTitle}
+                  </span>
+                </>
+              )}
+              {typeof xp === "number" && (
+                <>
+                  <span className="text-neutral-700">•</span>
+                  <span className="text-[11px] text-neutral-500">
+                    {xp} XP
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
           {profile && (
             <div className="mt-3 space-y-1 text-sm text-neutral-300">
               {classicPrimaryLine ? (
-                <p className="text-neutral-200">
-                  {classicPrimaryLine}
-                </p>
+                <p className="text-neutral-200">{classicPrimaryLine}</p>
               ) : (
                 <p className="text-neutral-500 text-[13px]">
                   This traveler hasn&apos;t set a Classic main yet.
@@ -272,7 +341,39 @@ export default function PublicProfilePage() {
                 </p>
               ) : (
                 <div className="space-y-4 text-sm">
+                  {/* Astrum Rank block */}
                   <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-1">
+                      Astrum Rank
+                    </p>
+                    {typeof level === "number" || effectiveTitle || typeof xp === "number" ? (
+                      <div className="space-y-1 text-[13px]">
+                        <p className="text-neutral-100">
+                          {typeof level === "number" && (
+                            <span>Level {level}</span>
+                          )}
+                          {effectiveTitle && (
+                            <>
+                              {typeof level === "number" && " • "}
+                              <span>{effectiveTitle}</span>
+                            </>
+                          )}
+                        </p>
+                        {typeof xp === "number" && (
+                          <p className="text-neutral-500 text-[12px]">
+                            {xp} XP earned in Astrum
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-neutral-500 text-[13px]">
+                        This traveler hasn&apos;t earned a rank yet.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Classic main block */}
+                  <div className="pt-3 border-t border-neutral-900">
                     <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-1">
                       Classic Main
                     </p>
@@ -373,9 +474,7 @@ export default function PublicProfilePage() {
               ) : (
                 <div className="space-y-3 text-sm text-neutral-200">
                   {profile.bio && profile.bio.trim().length > 0 ? (
-                    <p className="whitespace-pre-line">
-                      {profile.bio}
-                    </p>
+                    <p className="whitespace-pre-line">{profile.bio}</p>
                   ) : (
                     <p className="text-neutral-500 text-[13px]">
                       This traveler hasn&apos;t written a bio yet.

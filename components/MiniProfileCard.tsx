@@ -20,6 +20,13 @@ type MiniProfileCardProps = {
     joinedAt: string | null;
     anchorX: number;
     anchorY: number;
+
+    // New rank fields
+    level: number | null;
+    xp: number | null;
+    highestTitle: string | null;
+    displayTitle: string | null;
+    showTitle: boolean | null;
   };
   onClose: () => void;
 };
@@ -32,6 +39,23 @@ function formatJoined(joinedAt: string | null) {
     month: "short",
     day: "numeric",
   });
+}
+
+// Shared title logic (same idea as public profile)
+function getDisplayTitleFromData(data: MiniProfileCardProps["data"]): string | null {
+  if (data.showTitle === false) return null;
+
+  const explicit =
+    data.displayTitle && data.displayTitle.trim().length > 0
+      ? data.displayTitle.trim()
+      : null;
+
+  const highest =
+    data.highestTitle && data.highestTitle.trim().length > 0
+      ? data.highestTitle.trim()
+      : null;
+
+  return explicit ?? highest ?? null;
 }
 
 export function MiniProfileCard({
@@ -65,6 +89,10 @@ export function MiniProfileCard({
     return pieces.join(" ");
   }, [data]);
 
+  const effectiveTitle = useMemo(() => getDisplayTitleFromData(data), [data]);
+  const level = data.level;
+  const xp = data.xp;
+
   // Close on Escape
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -93,10 +121,7 @@ export function MiniProfileCard({
 
   const content = (
     // 🔹 Full-screen backdrop that closes on click
-    <div
-      className="fixed inset-0 z-50"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50" onClick={onClose}>
       {/* The actual card – stop click from bubbling to backdrop */}
       <div
         ref={cardRef}
@@ -113,6 +138,30 @@ export function MiniProfileCard({
             <span className="text-[13px] font-semibold text-neutral-50">
               {data.displayName}
             </span>
+            {/* Rank line */}
+            {(typeof level === "number" || effectiveTitle || typeof xp === "number") && (
+              <span className="mt-0.5 text-[11px] text-neutral-400 flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                {typeof level === "number" && (
+                  <span className="text-neutral-300">Level {level}</span>
+                )}
+                {effectiveTitle && (
+                  <>
+                    {typeof level === "number" && (
+                      <span className="text-neutral-700">•</span>
+                    )}
+                    <span className="text-neutral-100">{effectiveTitle}</span>
+                  </>
+                )}
+                {typeof xp === "number" && (
+                  <>
+                    {(typeof level === "number" || effectiveTitle) && (
+                      <span className="text-neutral-700">•</span>
+                    )}
+                    <span className="text-neutral-500">{xp} XP</span>
+                  </>
+                )}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <span className="text-[9px] uppercase tracking-[0.18em] text-sky-400/80">

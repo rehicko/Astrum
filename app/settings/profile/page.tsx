@@ -6,11 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
 // Anniversary realms
-const ANNIVERSARY_REALMS = [
-  "Dreamscythe",
-  "Nightslayer",
-  "Doomhowl",
-];
+const ANNIVERSARY_REALMS = ["Dreamscythe", "Nightslayer", "Doomhowl"];
 
 // MoP realm list (Anniversary realms removed)
 const MOP_REALMS = [
@@ -81,6 +77,47 @@ const RACE_OPTIONS = [
   "Blood Elf",
 ];
 
+// WoW class colors (used for nameplates when enabled)
+const CLASS_COLORS: Record<string, string> = {
+  Warrior: "#C79C6E",
+  Paladin: "#F58CBA",
+  Hunter: "#ABD473",
+  Rogue: "#FFF569",
+  Priest: "#FFFFFF",
+  Shaman: "#0070DE",
+  Mage: "#69CCF0",
+  Warlock: "#9482C9",
+  Druid: "#FF7D0A",
+};
+
+// Title ladder
+const TITLES: { id: string; label: string; minLevel: number }[] = [
+  { id: "visitor", label: "Visitor", minLevel: 1 },
+  { id: "regular", label: "Regular", minLevel: 2 },
+  { id: "local", label: "Local", minLevel: 3 },
+  { id: "pathfinder", label: "Pathfinder", minLevel: 4 },
+  { id: "vanguard", label: "Vanguard", minLevel: 5 },
+  { id: "veteran", label: "Veteran", minLevel: 6 },
+  { id: "luminary", label: "Luminary", minLevel: 7 },
+  { id: "architect", label: "Architect", minLevel: 8 },
+  { id: "constellation", label: "Constellation", minLevel: 9 },
+  { id: "astral-pioneer", label: "Astral Pioneer", minLevel: 10 },
+];
+
+// XP curve thresholds (must match your trigger / backend)
+const XP_THRESHOLDS = [
+  0, // L1 start
+  50, // L2
+  150, // L3
+  350, // L4
+  700, // L5
+  1250, // L6
+  2050, // L7
+  3250, // L8
+  5050, // L9
+  7550, // L10 cap
+];
+
 type Profile = {
   id: string;
   display_name: string | null;
@@ -92,7 +129,64 @@ type Profile = {
   classic_class: string | null;
   classic_race: string | null;
   classic_level: number | null;
+  xp: number | null;
+  level: number | null;
+  highest_title: string | null;
+  display_title: string | null;
+  show_title: boolean | null;
+  use_class_color: boolean | null;
 };
+
+type RankProgress = {
+  level: number;
+  xp: number;
+  currentInLevel: number;
+  neededForNext: number;
+  progressPct: number;
+  isMax: boolean;
+};
+
+function getLevelBounds(levelRaw: number | null) {
+  let level = levelRaw ?? 1;
+  if (level < 1) level = 1;
+  if (level > 10) level = 10;
+
+  const idx = level - 1;
+  const startXp = XP_THRESHOLDS[idx] ?? 0;
+  const endXp = level >= 10 ? null : XP_THRESHOLDS[idx + 1] ?? null;
+
+  return { level, startXp, endXp };
+}
+
+function computeXpProgress(xpRaw: number | null, levelRaw: number | null): RankProgress {
+  const xp = xpRaw ?? 0;
+  const { level, startXp, endXp } = getLevelBounds(levelRaw);
+
+  if (endXp === null) {
+    // Max level
+    return {
+      level,
+      xp,
+      currentInLevel: xp - startXp,
+      neededForNext: 0,
+      progressPct: 100,
+      isMax: true,
+    };
+  }
+
+  const span = endXp - startXp;
+  const current = Math.max(0, Math.min(span, xp - startXp));
+  const pct = span > 0 ? Math.round((current / span) * 100) : 0;
+
+  return {
+    level,
+    xp,
+    currentInLevel: current,
+    neededForNext: span,
+    progressPct: pct,
+    isMax: false,
+  };
+}
 
 export default function ProfileSettingsPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -116,9 +210,16 @@ export default function ProfileSettingsPage() {
   const [classicRace, setClassicRace] = useState("");
   const [classicLevel, setClassicLevel] = useState("");
 
+  // Name color toggle
+  const [useClassColor, setUseClassColor] = useState<boolean>(true);
+
   // Battle.net status
   const [bnetLinked, setBnetLinked] = useState(false);
   const [bnetCharsCount, setBnetCharsCount] = useState<number | null>(null);
+
+  // Rank + title UI state
+  const [selectedTitle, setSelectedTitle] = useState<"none" | string>("none");
+  const [showTitleState, setShowTitleState] = useState<boolean>(true);
 
   // Load session + profile
   useEffect(() => {
@@ -139,11 +240,28 @@ export default function ProfileSettingsPage() {
 
       const userId = session.user.id;
 
-      // Try to load existing profile, including classic fields
+      // Try to load existing profile, including classic + rank fields
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id, display_name, bio, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level"
+          `
+          id,
+          display_name,
+          bio,
+          classic_name,
+          classic_realm,
+          classic_region,
+          classic_faction,
+          classic_class,
+          classic_race,
+          classic_level,
+          xp,
+          level,
+          highest_title,
+          display_title,
+          show_title,
+          use_class_color
+        `
         )
         .eq("id", userId)
         .maybeSingle();
@@ -169,7 +287,24 @@ export default function ProfileSettingsPage() {
             bio: "",
           })
           .select(
-            "id, display_name, bio, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level"
+            `
+            id,
+            display_name,
+            bio,
+            classic_name,
+            classic_realm,
+            classic_region,
+            classic_faction,
+            classic_class,
+            classic_race,
+            classic_level,
+            xp,
+            level,
+            highest_title,
+            display_title,
+            show_title,
+            use_class_color
+          `
           )
           .single();
 
@@ -198,6 +333,28 @@ export default function ProfileSettingsPage() {
         prof.classic_level != null ? String(prof.classic_level) : ""
       );
 
+      // hydrate name-color toggle
+      setUseClassColor(
+        typeof prof.use_class_color === "boolean" ? prof.use_class_color : true
+      );
+
+      // hydrate title selector from display_title
+      const effectiveDisplay =
+        prof.display_title && prof.display_title.trim().length > 0
+          ? prof.display_title.trim()
+          : null;
+
+      const matched = TITLES.find(
+        (t) =>
+          effectiveDisplay &&
+          t.label.toLowerCase() === effectiveDisplay.toLowerCase()
+      );
+
+      setSelectedTitle(matched ? matched.id : "none");
+      setShowTitleState(
+        typeof prof.show_title === "boolean" ? prof.show_title : true
+      );
+
       // Battle.net status: check wow_characters
       const { data: chars, error: charsErr } = await supabase
         .from("wow_characters")
@@ -210,6 +367,7 @@ export default function ProfileSettingsPage() {
           setBnetCharsCount(chars.length);
         }
         setLoading(false);
+        return;
       }
     })();
 
@@ -217,6 +375,27 @@ export default function ProfileSettingsPage() {
       cancelled = true;
     };
   }, [supabase, router]);
+
+  const rank = computeXpProgress(profile?.xp ?? 0, profile?.level ?? 1);
+
+  const unlockedTitles = useMemo(() => {
+    return TITLES.filter((t) => rank.level >= t.minLevel);
+  }, [rank.level]);
+
+  const selectedTitleLabel = useMemo(() => {
+    if (!showTitleState) return null;
+    if (selectedTitle === "none") return null;
+    const found = TITLES.find((t) => t.id === selectedTitle);
+    return found?.label ?? null;
+  }, [selectedTitle, showTitleState]);
+
+  // Name color preview chip
+  const nameColorPreview = useMemo(() => {
+    if (useClassColor && classicClass) {
+      return CLASS_COLORS[classicClass] ?? "#38bdf8"; // sky-400 fallback
+    }
+    return "#38bdf8"; // default Astrum blue
+  }, [useClassColor, classicClass]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,6 +407,13 @@ export default function ProfileSettingsPage() {
 
     const levelNumber =
       classicLevel.trim() === "" ? null : Number.parseInt(classicLevel, 10);
+
+    // map selectedTitle -> label (stored in display_title)
+    let displayTitleValue: string | null = null;
+    if (selectedTitle !== "none") {
+      const found = TITLES.find((t) => t.id === selectedTitle);
+      displayTitleValue = found ? found.label : null;
+    }
 
     const { error } = await supabase.from("profiles").upsert(
       {
@@ -241,6 +427,9 @@ export default function ProfileSettingsPage() {
         classic_class: classicClass.trim() || null,
         classic_race: classicRace.trim() || null,
         classic_level: Number.isNaN(levelNumber) ? null : levelNumber,
+        display_title: displayTitleValue,
+        show_title: showTitleState,
+        use_class_color: useClassColor,
       },
       { onConflict: "id" }
     );
@@ -254,6 +443,26 @@ export default function ProfileSettingsPage() {
 
     setSaving(false);
     setSaved(true);
+
+    setProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            display_name: displayName.trim() || null,
+            bio: bio.trim() || null,
+            classic_name: classicName.trim() || null,
+            classic_realm: classicRealm.trim() || null,
+            classic_region: classicRegion.trim() || null,
+            classic_faction: classicFaction || null,
+            classic_class: classicClass.trim() || null,
+            classic_race: classicRace.trim() || null,
+            classic_level: Number.isNaN(levelNumber) ? null : levelNumber,
+            display_title: displayTitleValue,
+            show_title: showTitleState,
+            use_class_color: useClassColor,
+          }
+        : prev
+    );
 
     // fade out "Saved." message after a bit
     setTimeout(() => setSaved(false), 2500);
@@ -292,6 +501,134 @@ export default function ProfileSettingsPage() {
             <div className="text-sm text-red-400">{error}</div>
           ) : (
             <>
+              {/* Astrum Rank + XP (top section) */}
+              {profile && (
+                <section className="rounded-2xl border border-sky-500/40 bg-black/80 shadow-[0_24px_80px_rgba(0,0,0,0.95)] overflow-hidden mb-4">
+                  {/* Neon strip */}
+                  <div className="h-[2px] w-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-500" />
+
+                  <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-400 mb-1">
+                        Astrum Rank
+                      </p>
+                      <p className="text-sm font-semibold text-neutral-50">
+                        {profile.display_name || "Traveler"}
+                      </p>
+                      {selectedTitleLabel && (
+                        <p className="text-[12px] text-neutral-300 mt-0.5">
+                          {selectedTitleLabel}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right text-[11px] text-neutral-500">
+                      {rank.isMax ? (
+                        <span>Max level reached</span>
+                      ) : (
+                        <span>
+                          {rank.currentInLevel} / {rank.neededForNext} XP{" "}
+                          <span className="text-neutral-600">
+                            to Level {rank.level + 1}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* XP bar */}
+                  <div className="px-4 pb-3">
+                    <div className="h-1.5 rounded-full bg-neutral-950 border border-sky-900/60 overflow-hidden shadow-[0_0_12px_rgba(56,189,248,0.25)]">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-400 transition-[width] duration-500 ease-out shadow-[0_0_18px_rgba(56,189,248,0.55)]"
+                        style={{ width: `${rank.progressPct}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-[12px] text-neutral-300">
+                      Level {rank.level}
+                      <span className="text-neutral-700"> • </span>
+                      {rank.xp} XP
+                    </p>
+                  </div>
+
+                  {/* Title selector, right below XP bar */}
+                  <div className="px-4 pt-2 pb-4 border-t border-neutral-900 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-400 mb-1">
+                          Title
+                        </p>
+                        <p className="text-[12px] text-neutral-300">
+                          Choose how your rank label appears next to your
+                          name.
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 text-[11px] text-neutral-400">
+                        <input
+                          type="checkbox"
+                          checked={showTitleState}
+                          onChange={(e) =>
+                            setShowTitleState(e.target.checked)
+                          }
+                          className="h-3 w-3 rounded border-neutral-600 bg-black"
+                        />
+                        Show title
+                      </label>
+                    </div>
+
+                    {unlockedTitles.length === 0 ? (
+                      <p className="text-[12px] text-neutral-500">
+                        Earn XP in chat to unlock your first title.
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {/* No title */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTitle("none")}
+                          className={`w-full text-left px-3 py-2 rounded-lg border text-[12px] transition-colors ${
+                            selectedTitle === "none"
+                              ? "border-sky-500/70 bg-sky-500/10 text-neutral-50"
+                              : "border-neutral-800 bg-neutral-950 hover:border-neutral-700 text-neutral-300"
+                          }`}
+                        >
+                          <span className="font-medium">No title</span>
+                          <span className="ml-2 text-[11px] text-neutral-500">
+                            (show only your name)
+                          </span>
+                        </button>
+
+                        {unlockedTitles.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setSelectedTitle(t.id)}
+                            className={`w-full text-left px-3 py-2 rounded-lg border text-[12px] transition-colors ${
+                              selectedTitle === t.id
+                                ? "border-sky-500/70 bg-sky-500/10 text-neutral-50"
+                                : "border-neutral-800 bg-neutral-950 hover:border-neutral-700 text-neutral-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium">
+                                {t.label}
+                              </span>
+                              <span className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
+                                Level {t.minLevel}+
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-neutral-500 pt-1">
+                      Titles are cosmetic only. Rank shows how present you
+                      are in Astrum, not how powerful you are.
+                    </p>
+                  </div>
+                </section>
+              )}
+
               {/* Basic profile form */}
               <form onSubmit={handleSave} className="space-y-5 text-sm">
                 <div>
@@ -309,6 +646,43 @@ export default function ProfileSettingsPage() {
                   <p className="mt-1 text-[11px] text-neutral-500">
                     This is what other players see next to your messages.
                   </p>
+
+                  {/* Name color toggle + preview */}
+                  <div className="mt-3 flex items-center justify-between rounded-xl bg-neutral-950 border border-neutral-900 px-3 py-2.5">
+                    <div>
+                      <p className="text-[11px] text-neutral-400">
+                        Name color in chat
+                      </p>
+                      <p className="text-[11px] text-neutral-500">
+                        When enabled, your main class color is used for your
+                        name. Otherwise Astrum uses the default blue.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="h-6 px-3 rounded-full flex items-center text-[11px] font-medium shadow-[0_0_14px_rgba(0,0,0,0.6)]"
+                        style={{
+                          backgroundColor: nameColorPreview,
+                          color:
+                            nameColorPreview === "#FFFFFF" ||
+                            nameColorPreview === "#FFF569"
+                              ? "#000000"
+                              : "#020617",
+                        }}
+                      >
+                        {displayName.trim() || "Your name"}
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-[11px] text-neutral-400">
+                        <input
+                          type="checkbox"
+                          checked={useClassColor}
+                          onChange={(e) => setUseClassColor(e.target.checked)}
+                          className="h-3 w-3 rounded border-neutral-600 bg-black"
+                        />
+                        Class color
+                      </label>
+                    </div>
+                  </div>
                 </div>
 
                 <div>
@@ -546,4 +920,3 @@ export default function ProfileSettingsPage() {
     </div>
   );
 }
-

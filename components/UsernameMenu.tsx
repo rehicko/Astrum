@@ -49,6 +49,7 @@ export function UsernameMenu({
   });
 
   const [reporting, setReporting] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const closeMenu = () => {
@@ -99,29 +100,82 @@ export function UsernameMenu({
     };
   }, [menu.open]);
 
-  const handleViewProfile = () => {
+  const handleViewProfile = async () => {
     if (!userId) {
       closeMenu();
       alert("Profile not available for this message.");
       return;
     }
 
-    openProfileCard({
-      userId,
-      displayName: safeName,
-      classicName,
-      classicRealm,
-      classicRegion,
-      classicFaction,
-      classicClass,
-      classicRace,
-      classicLevel,
-      joinedAt,
-      anchorX: menu.x,
-      anchorY: menu.y,
-    });
+    setProfileLoading(true);
 
+    const anchorX = menu.x;
+    const anchorY = menu.y;
+
+    // Load full profile including rank + classic fields
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(
+        `
+        id,
+        display_name,
+        created_at,
+        xp,
+        level,
+        highest_title,
+        display_title,
+        show_title,
+        classic_name,
+        classic_realm,
+        classic_region,
+        classic_faction,
+        classic_class,
+        classic_race,
+        classic_level
+      `
+      )
+      .eq("id", userId)
+      .maybeSingle();
+
+    setProfileLoading(false);
     closeMenu();
+
+    if (error) {
+      console.error("Username profile load error:", error);
+    }
+
+    const profile = data ?? null;
+
+    openProfileCard({
+      userId: profile?.id ?? userId,
+      displayName:
+        profile?.display_name && profile.display_name.trim().length > 0
+          ? profile.display_name.trim()
+          : safeName,
+
+      // Classic fields: prefer fresh profile data, fall back to feed data
+      classicName: profile?.classic_name ?? classicName,
+      classicRealm: profile?.classic_realm ?? classicRealm,
+      classicRegion: profile?.classic_region ?? classicRegion,
+      classicFaction: profile?.classic_faction ?? classicFaction,
+      classicClass: profile?.classic_class ?? classicClass,
+      classicRace: profile?.classic_race ?? classicRace,
+      classicLevel: profile?.classic_level ?? classicLevel,
+
+      joinedAt: profile?.created_at ?? joinedAt,
+      anchorX,
+      anchorY,
+
+      // Rank fields (these power Level / Title / XP in MiniProfileCard)
+      level: profile?.level ?? null,
+      xp: profile?.xp ?? null,
+      highestTitle: profile?.highest_title ?? null,
+      displayTitle: profile?.display_title ?? null,
+      showTitle:
+        typeof profile?.show_title === "boolean"
+          ? profile.show_title
+          : true,
+    });
   };
 
   const handleAddFriend = () => {
@@ -176,7 +230,7 @@ export function UsernameMenu({
         type="button"
         onClick={handleClick}
         onContextMenu={handleOpen}
-        className="font-semibold text-sky-300 hover:text-sky-100 focus:outline-none focus:ring-1 focus:ring-sky-500/70 rounded-sm transition-colors"
+        className="font-semibold text-inherit focus:outline-none focus:ring-1 focus:ring-sky-500/70 rounded-sm transition-colors"
       >
         {safeName}
       </button>
@@ -197,7 +251,7 @@ export function UsernameMenu({
           {/* Header */}
           <div className="px-3 py-2 border-b border-white/5 bg-white/[0.02] text-[11px] text-neutral-300 flex items-center justify-between">
             <span className="truncate">{safeName}</span>
-            <span className="text-[9px] uppercase tracking-[0.18em] text-sky-400/80">
+            <span className="text-[9px] uppercase tracking-[0.18em] text-neutral-500">
               Astrum
             </span>
           </div>
@@ -206,9 +260,10 @@ export function UsernameMenu({
           <button
             type="button"
             onClick={handleViewProfile}
-            className="w-full text-left px-3 py-2.5 hover:bg-sky-500/15 hover:text-sky-100 flex items-center justify-between transition-colors"
+            disabled={profileLoading}
+            className="w-full text-left px-3 py-2.5 hover:bg-sky-500/15 hover:text-sky-100 flex items-center justify-between transition-colors disabled:opacity-60"
           >
-            <span>View Profile</span>
+            <span>{profileLoading ? "Opening…" : "View Profile"}</span>
             <span className="text-[9px] text-neutral-500">ENTER</span>
           </button>
 

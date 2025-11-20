@@ -23,6 +23,13 @@ export type ProfileCardPayload = {
   joinedAt: string | null;
   anchorX: number;
   anchorY: number;
+
+  // 🔹 New rank-related fields (optional in payload so old callers still compile)
+  level?: number | null;
+  xp?: number | null;
+  highestTitle?: string | null;
+  displayTitle?: string | null;
+  showTitle?: boolean | null;
 };
 
 type ProfileCardContextValue = {
@@ -62,7 +69,27 @@ export function ProfileCardProvider({ children }: { children: ReactNode }) {
       {portalEl && current && (
         <MiniProfileCard
           portalEl={portalEl}
-          data={current}
+          data={{
+            // base fields
+            userId: current.userId,
+            displayName: current.displayName,
+            classicName: current.classicName,
+            classicRealm: current.classicRealm,
+            classicRegion: current.classicRegion,
+            classicFaction: current.classicFaction,
+            classicClass: current.classicClass,
+            classicRace: current.classicRace,
+            classicLevel: current.classicLevel,
+            joinedAt: current.joinedAt,
+            anchorX: current.anchorX,
+            anchorY: current.anchorY,
+            // rank fields with safe defaults so the card always has them
+            level: current.level ?? null,
+            xp: current.xp ?? null,
+            highestTitle: current.highestTitle ?? null,
+            displayTitle: current.displayTitle ?? null,
+            showTitle: current.showTitle ?? true,
+          }}
           onClose={closeProfileCard}
         />
       )}
