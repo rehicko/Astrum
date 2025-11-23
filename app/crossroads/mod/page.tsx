@@ -1,114 +1,190 @@
 // app/crossroads/mod/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { createClient } from "@/lib/supabaseClient";
 
 type PendingMessage = {
   id: string;
   content: string;
   created_at: string;
-  channel_id: string;
-  user_id: string;
-  // Optional – we aren't selecting it right now because the column
-  // doesn't exist on messages_pending_tbl in your schema.
-  report_reason?: string | null;
+  channel_id: string | null;
+  user_id: string | null;
 };
 
-type Action = "approve" | "reject" | "escalate";
+type ReportQueueItem = {
+  report_id: string;
+  reported_at: string;
+  report_reason: string | null;
+  report_status: string;
+  report_resolution: string | null;
+  message_id: string | null;
+  message_content: string | null;
+  author_id: string | null;
+  author_display_name: string | null;
+  reporter_display_name: string | null;
+};
+
+type AuthState = "checking" | "unauth" | "not_mod" | "ok";
+type AiAction = "approve" | "reject" | "escalate";
+type ReportAction = "resolve" | "strike";
 
 export default function ModPage() {
-  const supabase = createClient();
-  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [loading, setLoading] = useState(true);
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [notAuthorized, setNotAuthorized] = useState(false);
-  const [messages, setMessages] = useState<PendingMessage[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [authState, setAuthState] = useState<AuthState>("checking");
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // AI gate queue
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiMessages, setAiMessages] = useState<PendingMessage[]>([]);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiActionLoadingId, setAiActionLoadingId] = useState<string | null>(
+    null
+  );
+
+  // Player report queue
+  const [reportsLoading, setReportsLoading] = useState(true);
+  const [reports, setReports] = useState<ReportQueueItem[]>([]);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [reportActionLoadingId, setReportActionLoadingId] = useState<
+    string | null
+  >(null);
+
+  // ------------ LOADERS ------------
+
+  const loadAiQueue = useCallback(async () => {
+    setAiLoading(true);
+    setAiError(null);
+
+    const { data, error } = await supabase
+      .from("messages_pending_tbl")
+      .select("id, content, created_at, channel_id, user_id")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("ModPage: error loading AI queue", error);
+      setAiError("Unable to load AI moderation queue.");
+      setAiMessages([]);
+    } else {
+      setAiMessages((data as PendingMessage[]) ?? []);
+    }
+
+    setAiLoading(false);
+  }, [supabase]);
+
+  const loadReportQueue = useCallback(async () => {
+    setReportsLoading(true);
+    setReportsError(null);
+
+    const { data, error } = await supabase
+      .from("message_report_queue")
+      .select(
+        `
+        report_id,
+        reported_at,
+        report_reason,
+        report_status,
+        report_resolution,
+        message_id,
+        message_content,
+        author_id,
+        author_display_name,
+        reporter_display_name
+      `
+      )
+      .order("reported_at", { ascending: false });
+
+    if (error) {
+      console.error("ModPage: error loading report queue", error);
+      setReportsError("Unable to load player reports.");
+      setReports([]);
+    } else {
+      setReports((data as ReportQueueItem[]) ?? []);
+    }
+
+    setReportsLoading(false);
+  }, [supabase]);
+
+  // ------------ AUTH + INITIAL LOAD ------------
 
   useEffect(() => {
-    const loadPendingMessages = async () => {
-      setLoading(true);
-      setError(null);
+    let cancelled = false;
 
-      const { data, error } = await supabase
-        .from("messages_pending_tbl")
-        .select("id, content, created_at, channel_id, user_id")
-        .order("created_at", { ascending: false });
+    (async () => {
+      setAuthState("checking");
+      setAuthError(null);
 
-      if (error) {
-        console.error("Error loading pending messages:", error);
-        setError("Unable to load moderation queue.");
-        setMessages([]);
-      } else {
-        setMessages(data ?? []);
-      }
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
 
-      setLoading(false);
-    };
+      if (cancelled) return;
 
-    const init = async () => {
-      setCheckingAuth(true);
-      setError(null);
-
-      // 1) Check auth
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError) {
-        console.error("Error getting user:", userError);
-        setError("Unable to load user session.");
-        setCheckingAuth(false);
-        setLoading(false);
+      if (sessionError) {
+        console.error("ModPage: getSession error", sessionError);
+        setAuthError("Unable to load user session.");
+        setAuthState("unauth");
+        setAiLoading(false);
+        setReportsLoading(false);
         return;
       }
 
-      if (!user) {
-        // Not logged in → send to /auth
-        router.push("/auth");
+      const session = sessionData.session;
+      if (!session) {
+        setAuthState("unauth");
+        setAiLoading(false);
+        setReportsLoading(false);
         return;
       }
 
-      // 2) Check moderator flag
+      const userId = session.user.id;
+
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("is_moderator")
-        .eq("id", user.id)
-        .single();
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (cancelled) return;
 
       if (profileError) {
-        console.error("Error loading profile:", profileError);
-        setError("Unable to load profile.");
-        setCheckingAuth(false);
-        setLoading(false);
+        console.error("ModPage: profile error", profileError);
+        setAuthError("Unable to load profile.");
+        setAuthState("not_mod");
+        setAiLoading(false);
+        setReportsLoading(false);
         return;
       }
 
       if (!profile?.is_moderator) {
-        setNotAuthorized(true);
-        setCheckingAuth(false);
-        setLoading(false);
+        setAuthState("not_mod");
+        setAiLoading(false);
+        setReportsLoading(false);
         return;
       }
 
-      setCheckingAuth(false);
+      // All good – user is a moderator
+      setAuthState("ok");
 
-      // 3) Load pending messages
-      await loadPendingMessages();
+      // Load both queues in parallel
+      await Promise.all([loadAiQueue(), loadReportQueue()]);
+    })();
+
+    return () => {
+      cancelled = true;
     };
+  }, [supabase, loadAiQueue, loadReportQueue]);
 
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ------------ AI GATE ACTIONS ------------
 
-  const handleAction = async (msg: PendingMessage, action: Action) => {
-    setError(null);
-    setActionLoadingId(msg.id);
+  const handleAiAction = async (msg: PendingMessage, action: AiAction) => {
+    setAiError(null);
+    setAiActionLoadingId(msg.id);
 
     try {
       let functionName: string;
@@ -140,154 +216,359 @@ export default function ModPage() {
       const { error } = await supabase.rpc(functionName, args);
 
       if (error) {
-        console.error(`Error running ${functionName}:`, error);
-        setError(error.message ?? "Action failed.");
+        console.error(`ModPage: error running ${functionName}`, error);
+        setAiError(error.message ?? "Action failed.");
       } else {
-        // Remove the message from local state so the UI updates without flicker
-        setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+        setAiMessages((prev) => prev.filter((m) => m.id !== msg.id));
       }
     } finally {
-      setActionLoadingId(null);
+      setAiActionLoadingId(null);
     }
   };
 
-  if (checkingAuth) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <div className="text-sm text-slate-400">Checking permissions…</div>
-      </div>
-    );
-  }
+  // ------------ REPORT ACTIONS ------------
 
-  if (notAuthorized) {
+  const handleReportAction = async (
+    report: ReportQueueItem,
+    action: ReportAction
+  ) => {
+    setReportsError(null);
+    setReportActionLoadingId(report.report_id);
+
+    try {
+      if (action === "resolve") {
+        // Just mark report as reviewed / resolved
+        const { error } = await supabase.rpc("resolve_message_report", {
+          p_report_id: report.report_id,
+          p_resolution: "reviewed",
+        });
+
+        if (error) {
+          console.error("ModPage: resolve_message_report error", error);
+          setReportsError(error.message ?? "Failed to resolve report.");
+        } else {
+          setReports((prev) =>
+            prev.filter((r) => r.report_id !== report.report_id)
+          );
+        }
+      } else if (action === "strike") {
+        // Apply a strike from this report (ties into your existing strike → temp-ban system)
+        const { error } = await supabase.rpc("issue_strike_from_report", {
+          p_report_id: report.report_id,
+          p_reason: "Moderator strike from report queue",
+        });
+
+        if (error) {
+          console.error("ModPage: issue_strike_from_report error", error);
+          setReportsError(error.message ?? "Failed to apply strike.");
+        } else {
+          // The helper function also resolves the report; remove from UI.
+          setReports((prev) =>
+            prev.filter((r) => r.report_id !== report.report_id)
+          );
+        }
+      }
+    } finally {
+      setReportActionLoadingId(null);
+    }
+  };
+
+  // ------------ AUTH STATES ------------
+
+  if (authState === "checking") {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <div className="max-w-md text-center px-4">
-          <h1 className="text-xl font-semibold mb-2">Access denied</h1>
-          <p className="text-sm text-slate-400">
-            You don&apos;t have moderator permissions for Astrum yet.
-          </p>
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <div className="text-sm text-neutral-500">
+          Checking permissions…
         </div>
       </div>
     );
   }
 
+  if (authState === "unauth") {
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <div className="max-w-md text-center px-4">
+          <h1 className="text-xl font-semibold mb-2">Sign-in required</h1>
+          <p className="text-sm text-neutral-500">
+            You need to be logged in to use the moderation tools. Use the
+            sign-in button in the header, then come back to{" "}
+            <span className="font-mono">/crossroads/mod</span>.
+          </p>
+          {authError && (
+            <p className="mt-2 text-xs text-red-400">{authError}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (authState === "not_mod") {
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <div className="max-w-md text-center px-4">
+          <h1 className="text-xl font-semibold mb-2">Access denied</h1>
+          <p className="text-sm text-neutral-500">
+            Your account doesn&apos;t have moderator permissions on Astrum.
+          </p>
+          {authError && (
+            <p className="mt-2 text-xs text-red-400">{authError}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ------------ MAIN MOD DASHBOARD (authState === "ok") ------------
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <header className="mb-6 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold">Moderation Queue</h1>
-            <p className="text-sm text-slate-400 mt-1">
-              Review messages held by the AI filter. Approve what&apos;s clean,
-              reject what crosses the line, escalate anything borderline.
-            </p>
-          </div>
+    <div className="min-h-screen bg-black text-neutral-100">
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+        {/* Page header */}
+        <header className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-500/80">
+            Moderation
+          </p>
+          <h1 className="text-3xl font-semibold text-neutral-50">
+            Moderation queue.
+          </h1>
+          <p className="text-sm text-neutral-400 max-w-2xl">
+            Messages that tripped the AI filter or were reported by players
+            land here. Approve what&apos;s clean, reject what crosses the line,
+            escalate anything that needs a human second look.
+          </p>
         </header>
 
-        {error && (
-          <div className="mb-4 rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-100">
-            {error}
+        {/* PLAYER REPORTS SECTION */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-neutral-100">
+                Player reports
+              </h2>
+              <p className="text-xs text-neutral-500">
+                Messages flagged by players in chat. You can close a report or
+                apply a strike, which plugs into your strike → temp-ban system.
+              </p>
+            </div>
+            <div className="text-right text-[11px] text-neutral-500">
+              {reportsLoading
+                ? "Loading reports…"
+                : `${reports.length} report${
+                    reports.length === 1 ? "" : "s"
+                  } pending`}
+            </div>
           </div>
-        )}
 
-        {loading ? (
-          <div className="mt-10 flex justify-center">
-            <div className="text-sm text-slate-400">Loading queue…</div>
+          {reportsError && (
+            <div className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-xs text-red-100">
+              {reportsError}
+            </div>
+          )}
+
+          {reportsLoading ? (
+            <div className="mt-4 text-sm text-neutral-500">
+              Loading player reports…
+            </div>
+          ) : reports.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-5 text-sm text-neutral-400">
+              No active player reports.{" "}
+              <span className="text-neutral-500">
+                Astrum is quiet for now.
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {reports.map((r) => (
+                <div
+                  key={r.report_id}
+                  className="rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-black to-black px-4 py-4"
+                >
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[11px] uppercase tracking-[0.2em] text-amber-400/80">
+                        Reported message
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        By{" "}
+                        <span className="text-neutral-200">
+                          {r.reporter_display_name || "Unknown"}
+                        </span>{" "}
+                        at{" "}
+                        {new Date(r.reported_at).toLocaleString(undefined, {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                      </span>
+                    </div>
+                    <span className="font-mono text-[10px] text-neutral-500">
+                      {r.report_status}
+                      {r.report_resolution
+                        ? ` • ${r.report_resolution}`
+                        : ""}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-800 bg-black/70 px-3 py-3 mb-3">
+                    <div className="text-[11px] text-neutral-500 mb-1">
+                      Message from{" "}
+                      <span className="text-neutral-200">
+                        {r.author_display_name || "Unknown"}
+                      </span>
+                      :
+                    </div>
+                    <div className="text-sm text-neutral-100 whitespace-pre-wrap break-words">
+                      {r.message_content || "Message not found."}
+                    </div>
+                  </div>
+
+                  {r.report_reason && (
+                    <p className="text-[11px] text-neutral-400 mb-3">
+                      Player note:{" "}
+                      <span className="text-neutral-200">
+                        {r.report_reason}
+                      </span>
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[11px] text-neutral-500">
+                      Resolution:{" "}
+                      <span className="text-neutral-300">
+                        Pending moderator review.
+                      </span>
+                    </p>
+                    <div className="inline-flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleReportAction(r, "resolve")}
+                        disabled={reportActionLoadingId === r.report_id}
+                        className="rounded-full border border-neutral-600 bg-neutral-900 px-3 py-1.5 text-[11px] font-medium text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
+                      >
+                        {reportActionLoadingId === r.report_id
+                          ? "Working…"
+                          : "Mark reviewed"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReportAction(r, "strike")}
+                        disabled={reportActionLoadingId === r.report_id}
+                        className="rounded-full border border-red-500/70 bg-red-500/10 px-3 py-1.5 text-[11px] font-medium text-red-100 hover:bg-red-500/20 disabled:opacity-50"
+                      >
+                        {reportActionLoadingId === r.report_id
+                          ? "Applying…"
+                          : "Add strike & close"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* AI GATE SECTION */}
+        <section className="space-y-3 pt-4 border-t border-neutral-900">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-neutral-100">
+                AI gate queue
+              </h2>
+              <p className="text-xs text-neutral-500">
+                Messages that tripped the AI filter land here before hitting
+                public chat. Approve, reject, or escalate.
+              </p>
+            </div>
+            {/* Simple text instead of green oval */}
+            <div className="text-right text-[11px] text-neutral-500">
+              {aiLoading
+                ? "Loading AI queue…"
+                : `${aiMessages.length} in AI queue`}
+            </div>
           </div>
-        ) : messages.length === 0 ? (
-          <div className="mt-10 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-6 text-center">
-            <p className="text-sm text-slate-300">
-              Nothing in the queue right now.
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              The AI gate is doing its job. Come back when Astrum gets louder.
-            </p>
-          </div>
-        ) : (
-          <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-900/80">
-                <tr className="text-slate-400 text-xs uppercase tracking-wide">
-                  <th className="px-3 py-2 text-left">Message</th>
-                  <th className="px-3 py-2 text-left">User</th>
-                  <th className="px-3 py-2 text-left">Channel</th>
-                  <th className="px-3 py-2 text-left">Created</th>
-                  <th className="px-3 py-2 text-left">Report</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {messages.map((msg) => (
-                  <tr
-                    key={msg.id}
-                    className="border-t border-slate-800/80 hover:bg-slate-900/90"
-                  >
-                    <td className="px-3 py-3 align-top max-w-md">
-                      <div className="text-slate-100 whitespace-pre-wrap break-words">
-                        {msg.content}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-top text-slate-300 text-xs">
-                      <div className="font-mono break-all">
-                        {msg.user_id ?? "unknown"}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-top text-slate-300 text-xs">
-                      <div className="font-mono break-all">
-                        {msg.channel_id ?? "GLOBAL"}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-top text-slate-400 text-xs">
+
+          {aiError && (
+            <div className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-xs text-red-100">
+              {aiError}
+            </div>
+          )}
+
+          {aiLoading ? (
+            <div className="mt-4 text-sm text-neutral-500">
+              Loading moderation queue…
+            </div>
+          ) : aiMessages.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-5 text-sm text-neutral-400">
+              Nothing in the AI queue right now.{" "}
+              <span className="text-neutral-500">
+                Either Astrum is quiet or the gate is doing its job.
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {aiMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className="rounded-xl border border-neutral-800 bg-neutral-950/80 px-4 py-4"
+                >
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">
+                        Message
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        User:{" "}
+                        <span className="font-mono text-neutral-300">
+                          {msg.user_id ?? "unknown"}
+                        </span>{" "}
+                        • Channel:{" "}
+                        <span className="font-mono text-neutral-300">
+                          {msg.channel_id ?? "global"}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-neutral-500">
                       {new Date(msg.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-3 align-top text-slate-300 text-xs">
-                      {msg.report_reason ? (
-                        <span className="inline-flex rounded-full bg-amber-900/40 px-2 py-1 text-[11px] text-amber-200 border border-amber-500/40">
-                          {msg.report_reason}
-                        </span>
-                      ) : (
-                        <span className="text-slate-500 text-[11px]">
-                          AI gate only
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 align-top text-right">
-                      <div className="inline-flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleAction(msg, "approve")}
-                          disabled={actionLoadingId === msg.id}
-                          className="rounded-md border border-emerald-500/60 bg-emerald-900/50 px-2.5 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-900 disabled:opacity-50"
-                        >
-                          {actionLoadingId === msg.id
-                            ? "Working…"
-                            : "Approve"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleAction(msg, "reject")}
-                          disabled={actionLoadingId === msg.id}
-                          className="rounded-md border border-red-500/60 bg-red-900/40 px-2.5 py-1 text-[11px] font-medium text-red-100 hover:bg-red-900 disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleAction(msg, "escalate")}
-                          disabled={actionLoadingId === msg.id}
-                          className="rounded-md border border-amber-500/60 bg-amber-900/40 px-2.5 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-900 disabled:opacity-50"
-                        >
-                          Escalate
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-800 bg-black/70 px-3 py-3 mb-3">
+                    <div className="text-sm text-neutral-100 whitespace-pre-wrap break-words">
+                      {msg.content}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleAiAction(msg, "approve")}
+                      disabled={aiActionLoadingId === msg.id}
+                      className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-50"
+                    >
+                      {aiActionLoadingId === msg.id ? "Working…" : "Approve"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAiAction(msg, "reject")}
+                      disabled={aiActionLoadingId === msg.id}
+                      className="rounded-full border border-red-500/70 bg-red-500/10 px-3 py-1.5 text-[11px] font-medium text-red-100 hover:bg-red-500/20 disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAiAction(msg, "escalate")}
+                      disabled={aiActionLoadingId === msg.id}
+                      className="rounded-full border border-amber-500/70 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
+                    >
+                      Escalate
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

@@ -11,29 +11,68 @@ export default function DebugPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      const u = await supabase.auth.getUser();
-      const s = await supabase.auth.getSession();
-      setUser(u.data.user ?? null);
-      setSession(s.data.session ?? null);
+    let cancelled = false;
 
-      const { data, error } = await supabase
+    (async () => {
+      // Single source: getSession (avoids AuthSessionMissingError)
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (cancelled) return;
+
+      if (sessionError) {
+        console.error("Debug getSession error:", sessionError);
+        setErr(sessionError.message);
+      }
+
+      const currentSession = sessionData.session ?? null;
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+
+      // Simple global message count
+      const { error: msgError, count } = await supabase
         .from("messages")
         .select("id", { count: "exact", head: true })
         .eq("channel", "global");
-      if (error) setErr(error.message);
-      setCounts({ global: data === null ? 0 : (data as any)?.length ?? "—", countHint: (data as any) });
 
+      if (cancelled) return;
+
+      if (msgError) {
+        console.error("Debug message count error:", msgError);
+        setErr(msgError.message);
+        setCounts(null);
+        return;
+      }
+
+      setCounts({
+        globalCount: count ?? 0,
+      });
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [supabase]);
 
   return (
-    <div className="p-6 text-sm text-neutral-200">
-      <h1 className="text-xl mb-4">Debug</h1>
-      <pre className="bg-neutral-900 p-3 rounded mb-3">user: {JSON.stringify(user, null, 2)}</pre>
-      <pre className="bg-neutral-900 p-3 rounded mb-3">session: {JSON.stringify(session, null, 2)}</pre>
-      <pre className="bg-neutral-900 p-3 rounded mb-3">counts: {JSON.stringify(counts, null, 2)}</pre>
-      {err && <div className="text-red-400">RLS error: {err}</div>}
+    <div className="min-h-screen bg-black text-neutral-200 px-6 py-8">
+      <h1 className="mb-4 text-xl font-semibold text-neutral-50">Debug</h1>
+
+      {err && (
+        <div className="mb-4 rounded-md border border-red-500/50 bg-red-950/60 px-3 py-2 text-sm text-red-100">
+          {err}
+        </div>
+      )}
+
+      <pre className="mb-3 rounded bg-neutral-900 p-3 text-xs">
+        user: {JSON.stringify(user, null, 2)}
+      </pre>
+      <pre className="mb-3 rounded bg-neutral-900 p-3 text-xs">
+        session: {JSON.stringify(session, null, 2)}
+      </pre>
+      <pre className="mb-3 rounded bg-neutral-900 p-3 text-xs">
+        counts: {JSON.stringify(counts, null, 2)}
+      </pre>
     </div>
   );
 }

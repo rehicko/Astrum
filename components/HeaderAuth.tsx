@@ -36,19 +36,18 @@ export function HeaderAuth() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    router.push("/auth"); // after logout, go to auth page
+    router.push("/auth");
   };
 
   // Not logged in -> show Sign in link
   if (!session) {
-    return (
+    return
       <Link
         href="/auth"
         className="text-[11px] text-white/55 transition-colors hover:text-white"
       >
         Sign in
-      </Link>
-    );
+      </Link>;
   }
 
   // Logged in -> show Sign out button

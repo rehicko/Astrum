@@ -17,6 +17,10 @@ type UsernameMenuProps = {
   classicRace: string | null;
   classicLevel: number | null;
   joinedAt: string | null;
+  // NEW: block support
+  isBlocked?: boolean;
+  onBlock?: () => void;
+  onUnblock?: () => void;
 };
 
 type MenuState = {
@@ -37,6 +41,9 @@ export function UsernameMenu({
   classicRace,
   classicLevel,
   joinedAt,
+  isBlocked,
+  onBlock,
+  onUnblock,
 }: UsernameMenuProps) {
   const supabase = useMemo(() => createClient(), []);
   const { openProfileCard } = useProfileCard();
@@ -223,6 +230,22 @@ export function UsernameMenu({
     }
   };
 
+  const handleToggleBlock = () => {
+    // Only act if we have a real target + callbacks
+    if (!userId || (!onBlock && !onUnblock)) {
+      closeMenu();
+      return;
+    }
+    closeMenu();
+    if (isBlocked) {
+      onUnblock && onUnblock();
+    } else {
+      onBlock && onBlock();
+    }
+  };
+
+  const showBlockItem = !!userId && (!!onBlock || !!onUnblock);
+
   return (
     <>
       {/* Username text */}
@@ -290,6 +313,19 @@ export function UsernameMenu({
               LOCKED
             </span>
           </button>
+
+          {showBlockItem && (
+            <button
+              type="button"
+              onClick={handleToggleBlock}
+              className="w-full text-left px-3 py-2.5 hover:bg-white/5 flex items-center justify-between transition-colors"
+            >
+              <span>{isBlocked ? "Unblock user" : "Block user"}</span>
+              <span className="text-[9px] uppercase tracking-[0.16em] text-neutral-500">
+                MUTE
+              </span>
+            </button>
+          )}
 
           <div className="border-t border-white/5 mt-1" />
 

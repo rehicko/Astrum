@@ -17,7 +17,7 @@ type Profile = {
   classic_race: string | null;
   classic_level: number | null;
   created_at: string | null;
-  // New fields for Astrum ranks
+  // Rank fields
   xp: number | null;
   level: number | null;
   highest_title: string | null;
@@ -60,7 +60,6 @@ function formatFullTimestamp(dateString: string) {
 // Single source of truth for how titles are shown everywhere
 function getDisplayTitle(profile: Profile | null): string | null {
   if (!profile) return null;
-  // If user has explicitly turned titles off, nothing is shown
   if (profile.show_title === false) return null;
 
   const explicit =
@@ -233,24 +232,23 @@ export default function PublicProfilePage() {
   const xp = profile?.xp ?? null;
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    // NOTE: no min-h-screen here so we don't fight the global layout/footer
+    <div className="flex-1 bg-black text-white">
       <div className="mx-auto max-w-4xl px-4 py-10">
         {/* Header */}
         <div className="mb-8 border-b border-neutral-900 pb-6">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-neutral-500 mb-2">
+          <p className="mb-2 text-[11px] uppercase tracking-[0.24em] text-neutral-500">
             Astrum Profile
           </p>
           <h1 className="text-2xl font-semibold text-neutral-50">
             {loadingProfile ? "Loading…" : titleName}
           </h1>
 
-          {/* Rank line: Level + Title + XP (shared logic with MiniProfileCard later) */}
+          {/* Rank line */}
           {profile && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-neutral-400">
               {typeof level === "number" && (
-                <span className="text-neutral-300">
-                  Level {level}
-                </span>
+                <span className="text-neutral-300">Level {level}</span>
               )}
               {effectiveTitle && (
                 <>
@@ -276,17 +274,17 @@ export default function PublicProfilePage() {
               {classicPrimaryLine ? (
                 <p className="text-neutral-200">{classicPrimaryLine}</p>
               ) : (
-                <p className="text-neutral-500 text-[13px]">
+                <p className="text-[13px] text-neutral-500">
                   This traveler hasn&apos;t set a Classic main yet.
                 </p>
               )}
               {classicRealmLine && (
-                <p className="text-neutral-400 text-[13px]">
+                <p className="text-[13px] text-neutral-400">
                   {classicRealmLine}
                 </p>
               )}
               {joinDate && (
-                <p className="text-neutral-500 text-[12px]">
+                <p className="text-[12px] text-neutral-500">
                   Joined Astrum: {joinDate}
                 </p>
               )}
@@ -296,7 +294,7 @@ export default function PublicProfilePage() {
 
         {/* Error / not found */}
         {error && !loadingProfile && (
-          <div className="text-sm text-red-400 mb-8">{error}</div>
+          <div className="mb-8 text-sm text-red-400">{error}</div>
         )}
 
         {/* Tabs */}
@@ -316,7 +314,7 @@ export default function PublicProfilePage() {
                 onClick={() => handleTabChange(key)}
                 className={`mr-6 pb-2 border-b-2 ${
                   active
-                    ? "border-sky-400 text-neutral-50"
+                    ? "border-emerald-400 text-neutral-50"
                     : "border-transparent text-neutral-500 hover:text-neutral-200"
                 }`}
               >
@@ -341,12 +339,14 @@ export default function PublicProfilePage() {
                 </p>
               ) : (
                 <div className="space-y-4 text-sm">
-                  {/* Astrum Rank block */}
+                  {/* Astrum Rank */}
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-1">
+                    <p className="mb-1 text-[11px] uppercase tracking-[0.16em] text-neutral-500">
                       Astrum Rank
                     </p>
-                    {typeof level === "number" || effectiveTitle || typeof xp === "number" ? (
+                    {typeof level === "number" ||
+                    effectiveTitle ||
+                    typeof xp === "number" ? (
                       <div className="space-y-1 text-[13px]">
                         <p className="text-neutral-100">
                           {typeof level === "number" && (
@@ -360,21 +360,21 @@ export default function PublicProfilePage() {
                           )}
                         </p>
                         {typeof xp === "number" && (
-                          <p className="text-neutral-500 text-[12px]">
+                          <p className="text-[12px] text-neutral-500">
                             {xp} XP earned in Astrum
                           </p>
                         )}
                       </div>
                     ) : (
-                      <p className="text-neutral-500 text-[13px]">
+                      <p className="text-[13px] text-neutral-500">
                         This traveler hasn&apos;t earned a rank yet.
                       </p>
                     )}
                   </div>
 
-                  {/* Classic main block */}
-                  <div className="pt-3 border-t border-neutral-900">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-1">
+                  {/* Classic main */}
+                  <div className="border-t border-neutral-900 pt-3">
+                    <p className="mb-1 text-[11px] uppercase tracking-[0.16em] text-neutral-500">
                       Classic Main
                     </p>
                     {classicPrimaryLine ? (
@@ -383,7 +383,7 @@ export default function PublicProfilePage() {
                           {classicPrimaryLine}
                         </p>
                         {classicRealmLine && (
-                          <p className="text-neutral-400 text-[13px]">
+                          <p className="text-[13px] text-neutral-400">
                             {classicRealmLine}
                           </p>
                         )}
@@ -394,17 +394,18 @@ export default function PublicProfilePage() {
                         )}
                       </>
                     ) : (
-                      <p className="text-neutral-500 text-[13px]">
+                      <p className="text-[13px] text-neutral-500">
                         No Classic main set yet.
                       </p>
                     )}
                   </div>
 
-                  <div className="pt-3 border-t border-neutral-900">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-1">
+                  {/* Status */}
+                  <div className="border-t border-neutral-900 pt-3">
+                    <p className="mb-1 text-[11px] uppercase tracking-[0.16em] text-neutral-500">
                       Status
                     </p>
-                    <p className="text-neutral-400 text-[13px]">
+                    <p className="text-[13px] text-neutral-400">
                       Friends and whispers are coming in Astrum v0.2.
                     </p>
                   </div>
@@ -416,7 +417,7 @@ export default function PublicProfilePage() {
           {/* Recent Messages */}
           {tab === "messages" && (
             <div className="rounded-2xl border border-neutral-900 bg-neutral-950/80 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-3">
+              <p className="mb-3 text-[11px] uppercase tracking-[0.16em] text-neutral-500">
                 Recent Messages (last 50)
               </p>
               {loadingMessages ? (
@@ -428,7 +429,7 @@ export default function PublicProfilePage() {
                   This traveler hasn&apos;t spoken in Astrum yet.
                 </p>
               ) : (
-                <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
                   {messages.map((m) => (
                     <div
                       key={m.id}
@@ -441,10 +442,8 @@ export default function PublicProfilePage() {
                         {formatTime(m.created_at)}
                       </span>
                       <div className="flex-1">
-                        <span className="text-[11px] uppercase tracking-[0.16em] text-sky-400/80 mr-2">
-                          {m.channel === "global"
-                            ? "Global"
-                            : m.channel}
+                        <span className="mr-2 text-[11px] uppercase tracking-[0.16em] text-emerald-400/80">
+                          {m.channel === "global" ? "Global" : m.channel}
                         </span>
                         <span className="text-neutral-200 break-words">
                           {m.content}
@@ -460,7 +459,7 @@ export default function PublicProfilePage() {
           {/* About */}
           {tab === "about" && (
             <div className="rounded-2xl border border-neutral-900 bg-neutral-950/80 px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500 mb-3">
+              <p className="mb-3 text-[11px] uppercase tracking-[0.16em] text-neutral-500">
                 About
               </p>
               {loadingProfile ? (
@@ -476,7 +475,7 @@ export default function PublicProfilePage() {
                   {profile.bio && profile.bio.trim().length > 0 ? (
                     <p className="whitespace-pre-line">{profile.bio}</p>
                   ) : (
-                    <p className="text-neutral-500 text-[13px]">
+                    <p className="text-[13px] text-neutral-500">
                       This traveler hasn&apos;t written a bio yet.
                     </p>
                   )}

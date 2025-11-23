@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { ensureUniqueById } from "@/lib/dedupe";
 import { MAX_HISTORY } from "@/lib/constants";
 import { UsernameMenu } from "@/components/UsernameMenu";
+import { useBlockList } from "@/lib/useBlockList";
 
 type FeedMessage = {
   id: string;
@@ -49,6 +50,9 @@ type RankSummary = {
 
 // 🔢 Max messages kept in memory per channel (5k-prep knob)
 const MAX_IN_MEMORY = MAX_HISTORY;
+
+// 🧵 How many recent messages to show on initial load (tail-only)
+const INITIAL_TAIL_LIMIT = 25;
 
 // px from bottom that counts as "at bottom" for auto-follow
 const BOTTOM_THRESHOLD = 80;
@@ -114,6 +118,37 @@ export default function Chat({ channel }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
 
+  // 🔒 Lock chat height to viewport minus header + footer
+  const [containerHeight, setContainerHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    const computeHeight = () => {
+      if (typeof window === "undefined") return;
+
+      const header = document.querySelector("header");
+      const footer = document.querySelector("footer");
+
+      const headerHeight =
+        header instanceof HTMLElement
+          ? header.getBoundingClientRect().height
+          : 0;
+      const footerHeight =
+        footer instanceof HTMLElement
+          ? footer.getBoundingClientRect().height
+          : 0;
+
+      const h = window.innerHeight - headerHeight - footerHeight;
+      setContainerHeight(h > 0 ? h : null);
+    };
+
+    computeHeight();
+    window.addEventListener("resize", computeHeight);
+    return () => window.removeEventListener("resize", computeHeight);
+  }, []);
+
+  const containerStyle: CSSProperties | undefined =
+    containerHeight != null ? { height: containerHeight } : undefined;
+
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState<FeedMessage[]>([]);
   const [text, setText] = useState("");
@@ -122,7 +157,15 @@ export default function Chat({ channel }: Props) {
   const [errText, setErrText] = useState<string | null>(null);
 
   const [rank, setRank] = useState<RankSummary | null>(null);
+  const [levelUpText, setLevelUpText] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Shared block list hook (chat + settings use the same source of truth)
+  const {
+    blockedIds,
+    blockUser: blockUserGlobal,
+    unblockUser: unblockUserGlobal,
+  } = useBlockList();
 
   const [atBottom, setAtBottom] = useState(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
@@ -193,11 +236,21 @@ export default function Chat({ channel }: Props) {
         return;
       }
 
-      setRank({
-        level: data.level ?? 1,
-        xp: data.xp ?? 0,
-        displayTitle: data.display_title ?? null,
-        showTitle: data.show_title ?? false,
+      setRank((prev) => {
+        const prevLevel = prev?.level ?? null;
+        const nextLevel = data.level ?? 1;
+
+        // Only show a toast when we *actually* leveled up
+        if (prevLevel !== null && nextLevel > prevLevel) {
+          setLevelUpText(`Level up! You are now Level ${nextLevel}.`);
+        }
+
+        return {
+          level: nextLevel,
+          xp: data.xp ?? 0,
+          displayTitle: data.display_title ?? null,
+          showTitle: data.show_title ?? false,
+        };
       });
     },
     [supabase]
@@ -208,10 +261,18 @@ export default function Chat({ channel }: Props) {
     void refreshRank(currentUserId);
   }, [currentUserId, refreshRank]);
 
+  // Auto-clear the level-up banner after a short delay
+  useEffect(() => {
+    if (!levelUpText) return;
+
+    const timer = setTimeout(() => setLevelUpText(null), 3500);
+    return () => clearTimeout(timer);
+  }, [levelUpText]);
+
   const feedSelect =
     "id, user_id, channel, content, created_at, display_name, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level, joined_at, class_color_hex, use_class_color";
 
-  // 📥 Initial load from VIEW: message_feed
+  // 📥 Initial load from VIEW: message_feed (tail-only, live-session style)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -222,8 +283,8 @@ export default function Chat({ channel }: Props) {
         .from("message_feed")
         .select(feedSelect)
         .eq("channel", channel)
-        .order("created_at", { ascending: true })
-        .limit(MAX_IN_MEMORY);
+        .order("created_at", { ascending: false }) // newest first
+        .limit(INITIAL_TAIL_LIMIT); // only recent tail
 
       if (cancelled) return;
 
@@ -235,7 +296,14 @@ export default function Chat({ channel }: Props) {
         return;
       }
 
-      setMessages((data ?? []) as FeedMessage[]);
+      const rows = (data ?? []) as FeedMessage[];
+
+      // We fetched newest-first; sort back to ascending so UI logic stays the same.
+      const ordered = [...rows].sort((a, b) =>
+        a.created_at.localeCompare(b.created_at)
+      );
+
+      setMessages(ordered);
       setLoading(false);
 
       // On first load, always go to bottom
@@ -284,6 +352,12 @@ export default function Chat({ channel }: Props) {
 
           const msg = data as FeedMessage;
 
+          // WoW-style block: ignore *new* messages from blocked users,
+          // but don't touch existing history.
+          if (msg.user_id && blockedIds.includes(msg.user_id)) {
+            return;
+          }
+
           setMessages((prev) => {
             const base = prev.filter(
               (m) =>
@@ -312,7 +386,7 @@ export default function Chat({ channel }: Props) {
         realtimeRef.current = null;
       }
     };
-  }, [channel, supabase, feedSelect, atBottom, scrollBottom]);
+  }, [channel, supabase, feedSelect, atBottom, scrollBottom, blockedIds]);
 
   // Fallback display name: "Guest" when null/empty (we'll leave "Anonymous" as-is)
   const renderName = (m: FeedMessage) =>
@@ -499,7 +573,9 @@ export default function Chat({ channel }: Props) {
   );
 
   const inputPlaceholder =
-    channel === "GLOBAL" ? "Message Astrum…" : `Message #${channel}`;
+    channel.toLowerCase() === "global"
+      ? "Message Astrum…"
+      : `Message #${channel}`;
 
   // Nicely formatted rank line text
   const rankLine = useMemo(() => {
@@ -516,7 +592,10 @@ export default function Chat({ channel }: Props) {
   // ------ Render ------
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div
+      style={containerStyle}
+      className="flex-1 flex flex-col min-h-0 overflow-hidden"
+    >
       {/* Messages area + "new messages" pill */}
       <div className="flex-1 min-h-0 relative">
         <div
@@ -545,6 +624,9 @@ export default function Chat({ channel }: Props) {
                 const nameColorStyle: CSSProperties | undefined = colorHex
                   ? { color: colorHex }
                   : undefined;
+
+                const isBlocked =
+                  !!m.user_id && blockedIds.includes(m.user_id);
 
                 return (
                   <div key={m.id} className="space-y-1.5">
@@ -580,6 +662,13 @@ export default function Chat({ channel }: Props) {
                               classicRace={m.classic_race}
                               classicLevel={m.classic_level}
                               joinedAt={m.joined_at}
+                              isBlocked={isBlocked}
+                              onBlock={() =>
+                                void blockUserGlobal(m.user_id ?? null)
+                              }
+                              onUnblock={() =>
+                                void unblockUserGlobal(m.user_id ?? null)
+                              }
                             />
                             {isOptimisticPending && (
                               <span className="ml-1 inline-flex items-center">
@@ -644,6 +733,12 @@ export default function Chat({ channel }: Props) {
                 Send
               </button>
             </div>
+
+            {levelUpText && (
+              <div className="mt-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-200">
+                {levelUpText}
+              </div>
+            )}
 
             {rankLine && (
               <div className="mt-1 text-[11px] text-neutral-500">

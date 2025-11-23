@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { RequireAuthGate } from "@/components/RequireAuthGate";
 
 // Anniversary realms
 const ANNIVERSARY_REALMS = ["Dreamscythe", "Nightslayer", "Doomhowl"];
@@ -158,7 +159,10 @@ function getLevelBounds(levelRaw: number | null) {
   return { level, startXp, endXp };
 }
 
-function computeXpProgress(xpRaw: number | null, levelRaw: number | null): RankProgress {
+function computeXpProgress(
+  xpRaw: number | null,
+  levelRaw: number | null
+): RankProgress {
   const xp = xpRaw ?? 0;
   const { level, startXp, endXp } = getLevelBounds(levelRaw);
 
@@ -205,7 +209,8 @@ export default function ProfileSettingsPage() {
   const [classicName, setClassicName] = useState("");
   const [classicRealm, setClassicRealm] = useState("");
   const [classicRegion, setClassicRegion] = useState("US");
-  const [classicFaction, setClassicFaction] = useState<"" | "Alliance" | "Horde">("");
+  const [classicFaction, setClassicFaction] =
+    useState<"" | "Alliance" | "Horde">("");
   const [classicClass, setClassicClass] = useState("");
   const [classicRace, setClassicRace] = useState("");
   const [classicLevel, setClassicLevel] = useState("");
@@ -391,10 +396,11 @@ export default function ProfileSettingsPage() {
 
   // Name color preview chip
   const nameColorPreview = useMemo(() => {
+    const fallback = "#22c55e"; // Astrum green fallback
     if (useClassColor && classicClass) {
-      return CLASS_COLORS[classicClass] ?? "#38bdf8"; // sky-400 fallback
+      return CLASS_COLORS[classicClass] ?? fallback;
     }
-    return "#38bdf8"; // default Astrum blue
+    return fallback;
   }, [useClassColor, classicClass]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -469,454 +475,439 @@ export default function ProfileSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center px-4">
-      <div className="w-full max-w-xl rounded-3xl border border-neutral-900 bg-neutral-950/90 shadow-[0_24px_80px_rgba(0,0,0,0.9)] relative overflow-hidden">
-        {/* Top bar */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-900">
-          <div>
-            <h1 className="text-lg font-semibold text-neutral-50">
-              Profile
-            </h1>
-            <p className="text-xs text-neutral-400">
-              Set how your name appears in chat, overlays, and link your
-              Classic main.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => router.push("/crossroads/global")}
-            className="text-[11px] px-3 py-1.5 rounded-full border border-neutral-800 bg-black/40 hover:bg-neutral-900 text-neutral-300 hover:text-white transition-colors"
-          >
-            ← Back to Crossroads
-          </button>
-        </div>
-
-        {/* Main content */}
-        <div className="px-6 py-5 space-y-6">
-          {loading ? (
-            <div className="text-sm text-neutral-400">
-              Loading profile…
+    <RequireAuthGate>
+      <div className="bg-black text-white flex justify-center px-4 py-8">
+        <div className="w-full max-w-xl rounded-3xl border border-neutral-900 bg-neutral-950/90 shadow-[0_24px_80px_rgba(0,0,0,0.9)] relative overflow-hidden">
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-900">
+            <div>
+              <h1 className="text-lg font-semibold text-neutral-50">Profile</h1>
+              <p className="text-xs text-neutral-400">
+                Set how your name appears in chat, overlays, and link your
+                Classic main.
+              </p>
             </div>
-          ) : error ? (
-            <div className="text-sm text-red-400">{error}</div>
-          ) : (
-            <>
-              {/* Astrum Rank + XP (top section) */}
-              {profile && (
-                <section className="rounded-2xl border border-sky-500/40 bg-black/80 shadow-[0_24px_80px_rgba(0,0,0,0.95)] overflow-hidden mb-4">
-                  {/* Neon strip */}
-                  <div className="h-[2px] w-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-500" />
+          </div>
 
-                  <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-400 mb-1">
-                        Astrum Rank
-                      </p>
-                      <p className="text-sm font-semibold text-neutral-50">
-                        {profile.display_name || "Traveler"}
-                      </p>
-                      {selectedTitleLabel && (
-                        <p className="text-[12px] text-neutral-300 mt-0.5">
-                          {selectedTitleLabel}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right text-[11px] text-neutral-500">
-                      {rank.isMax ? (
-                        <span>Max level reached</span>
-                      ) : (
-                        <span>
-                          {rank.currentInLevel} / {rank.neededForNext} XP{" "}
-                          <span className="text-neutral-600">
-                            to Level {rank.level + 1}
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
+          {/* Main content */}
+          <div className="px-6 py-5 space-y-6">
+            {loading ? (
+              <div className="text-sm text-neutral-400">Loading profile…</div>
+            ) : error ? (
+              <div className="text-sm text-red-400">{error}</div>
+            ) : (
+              <>
+                {/* Astrum Rank + XP (top section) */}
+                {profile && (
+                  <section className="rounded-2xl border border-emerald-500/40 bg-black/80 shadow-[0_24px_80px_rgba(0,0,0,0.95)] overflow-hidden mb-4">
+                    {/* Neon strip */}
+                    <div className="h-[2px] w-full bg-gradient-to-r from-violet-500 via-emerald-400 to-emerald-300" />
 
-                  {/* XP bar */}
-                  <div className="px-4 pb-3">
-                    <div className="h-1.5 rounded-full bg-neutral-950 border border-sky-900/60 overflow-hidden shadow-[0_0_12px_rgba(56,189,248,0.25)]">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-400 transition-[width] duration-500 ease-out shadow-[0_0_18px_rgba(56,189,248,0.55)]"
-                        style={{ width: `${rank.progressPct}%` }}
-                      />
-                    </div>
-                    <p className="mt-2 text-[12px] text-neutral-300">
-                      Level {rank.level}
-                      <span className="text-neutral-700"> • </span>
-                      {rank.xp} XP
-                    </p>
-                  </div>
-
-                  {/* Title selector, right below XP bar */}
-                  <div className="px-4 pt-2 pb-4 border-t border-neutral-900 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-400 mb-1">
-                          Title
+                          Astrum Rank
                         </p>
-                        <p className="text-[12px] text-neutral-300">
-                          Choose how your rank label appears next to your
-                          name.
+                        <p className="text-sm font-semibold text-neutral-50">
+                          {profile.display_name || "Traveler"}
                         </p>
+                        {selectedTitleLabel && (
+                          <p className="text-[12px] text-neutral-300 mt-0.5">
+                            {selectedTitleLabel}
+                          </p>
+                        )}
                       </div>
-                      <label className="flex items-center gap-2 text-[11px] text-neutral-400">
-                        <input
-                          type="checkbox"
-                          checked={showTitleState}
-                          onChange={(e) =>
-                            setShowTitleState(e.target.checked)
-                          }
-                          className="h-3 w-3 rounded border-neutral-600 bg-black"
-                        />
-                        Show title
-                      </label>
+                      <div className="text-right text-[11px] text-neutral-500">
+                        {rank.isMax ? (
+                          <span>Max level reached</span>
+                        ) : (
+                          <span>
+                            {rank.currentInLevel} / {rank.neededForNext} XP{" "}
+                            <span className="text-neutral-600">
+                              to Level {rank.level + 1}
+                            </span>
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {unlockedTitles.length === 0 ? (
-                      <p className="text-[12px] text-neutral-500">
-                        Earn XP in chat to unlock your first title.
+                    {/* XP bar */}
+                    <div className="px-4 pb-3">
+                      <div className="h-1.5 rounded-full bg-neutral-950 border border-emerald-900/60 overflow-hidden shadow-[0_0_14px_rgba(52,211,153,0.35)]">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-violet-500 via-emerald-400 to-emerald-300 transition-[width] duration-500 ease-out shadow-[0_0_18px_rgba(168,85,247,0.7)]"
+                          style={{ width: `${rank.progressPct}%` }}
+                        />
+                      </div>
+                      <p className="mt-2 text-[12px] text-neutral-300">
+                        Level {rank.level}
+                        <span className="text-neutral-700"> • </span>
+                        {rank.xp} XP
                       </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {/* No title */}
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTitle("none")}
-                          className={`w-full text-left px-3 py-2 rounded-lg border text-[12px] transition-colors ${
-                            selectedTitle === "none"
-                              ? "border-sky-500/70 bg-sky-500/10 text-neutral-50"
-                              : "border-neutral-800 bg-neutral-950 hover:border-neutral-700 text-neutral-300"
-                          }`}
-                        >
-                          <span className="font-medium">No title</span>
-                          <span className="ml-2 text-[11px] text-neutral-500">
-                            (show only your name)
-                          </span>
-                        </button>
+                    </div>
 
-                        {unlockedTitles.map((t) => (
+                    {/* Title selector, right below XP bar */}
+                    <div className="px-4 pt-2 pb-4 border-t border-neutral-900 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-400 mb-1">
+                            Title
+                          </p>
+                          <p className="text-[12px] text-neutral-300">
+                            Choose how your rank label appears next to your
+                            name.
+                          </p>
+                        </div>
+                        <label className="flex items-center gap-2 text-[11px] text-neutral-400">
+                          <input
+                            type="checkbox"
+                            checked={showTitleState}
+                            onChange={(e) =>
+                              setShowTitleState(e.target.checked)
+                            }
+                            className="h-3 w-3 rounded border-neutral-600 bg-black"
+                          />
+                          Show title
+                        </label>
+                      </div>
+
+                      {unlockedTitles.length === 0 ? (
+                        <p className="text-[12px] text-neutral-500">
+                          Earn XP in chat to unlock your first title.
+                        </p>
+                      ) : (
+                        <div className="space-y-1">
+                          {/* No title */}
                           <button
-                            key={t.id}
                             type="button"
-                            onClick={() => setSelectedTitle(t.id)}
+                            onClick={() => setSelectedTitle("none")}
                             className={`w-full text-left px-3 py-2 rounded-lg border text-[12px] transition-colors ${
-                              selectedTitle === t.id
-                                ? "border-sky-500/70 bg-sky-500/10 text-neutral-50"
+                              selectedTitle === "none"
+                                ? "border-emerald-500/70 bg-emerald-500/10 text-neutral-50"
                                 : "border-neutral-800 bg-neutral-950 hover:border-neutral-700 text-neutral-300"
                             }`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium">
-                                {t.label}
-                              </span>
-                              <span className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
-                                Level {t.minLevel}+
-                              </span>
-                            </div>
+                            <span className="font-medium">No title</span>
+                            <span className="ml-2 text-[11px] text-neutral-500">
+                              (show only your name)
+                            </span>
                           </button>
-                        ))}
-                      </div>
-                    )}
 
-                    <p className="text-[11px] text-neutral-500 pt-1">
-                      Titles are cosmetic only. Rank shows how present you
-                      are in Astrum, not how powerful you are.
+                          {unlockedTitles.map((t) => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => setSelectedTitle(t.id)}
+                              className={`w-full text-left px-3 py-2 rounded-lg border text-[12px] transition-colors ${
+                                selectedTitle === t.id
+                                  ? "border-emerald-500/70 bg-emerald-500/10 text-neutral-50"
+                                  : "border-neutral-800 bg-neutral-950 hover:border-neutral-700 text-neutral-300"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{t.label}</span>
+                                <span className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
+                                  Level {t.minLevel}+
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-neutral-500 pt-1">
+                        Titles are cosmetic only. Rank shows how present you are
+                        in Astrum, not how powerful you are.
+                      </p>
+                    </div>
+                  </section>
+                )}
+
+                {/* Basic profile form */}
+                <form onSubmit={handleSave} className="space-y-5 text-sm">
+                  <div>
+                    <label className="block text-xs text-neutral-400 mb-1.5">
+                      Display name
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2.5 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      maxLength={40}
+                      placeholder="Ajay, Rehicko, etc."
+                    />
+                    <p className="mt-1 text-[11px] text-neutral-500">
+                      This is what other players see next to your messages.
+                    </p>
+
+                    {/* Name color toggle + preview */}
+                    <div className="mt-3 flex items-center justify-between rounded-xl bg-neutral-950 border border-neutral-900 px-3 py-2.5">
+                      <div>
+                        <p className="text-[11px] text-neutral-400">
+                          Name color in chat
+                        </p>
+                        <p className="text-[11px] text-neutral-500">
+                          When enabled, your main class color is used for your
+                          name. Otherwise Astrum uses the default green.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="h-6 px-3 rounded-full flex items-center text-[11px] font-medium shadow-[0_0_14px_rgba(0,0,0,0.6)]"
+                          style={{
+                            backgroundColor: nameColorPreview,
+                            color:
+                              nameColorPreview === "#FFFFFF" ||
+                              nameColorPreview === "#FFF569"
+                                ? "#000000"
+                                : "#020617",
+                          }}
+                        >
+                          {displayName.trim() || "Your name"}
+                        </div>
+                        <label className="inline-flex items-center gap-2 text-[11px] text-neutral-400">
+                          <input
+                            type="checkbox"
+                            checked={useClassColor}
+                            onChange={(e) => setUseClassColor(e.target.checked)}
+                            className="h-3 w-3 rounded border-neutral-600 bg-black"
+                          />
+                          Class color
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-neutral-400 mb-1.5">
+                      About (optional)
+                    </label>
+                    <textarea
+                      className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2.5 outline-none text-sm text-neutral-50 focus:border-emerald-400/80 resize-none"
+                      rows={3}
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
+                      maxLength={240}
+                      placeholder="Class, role, main game, or a short line about you."
+                    />
+                    <p className="mt-1 text-[11px] text-neutral-500">
+                      Used on your profile and in future overlays when someone
+                      inspects you.
                     </p>
                   </div>
-                </section>
-              )}
 
-              {/* Basic profile form */}
-              <form onSubmit={handleSave} className="space-y-5 text-sm">
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1.5">
-                    Display name
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2.5 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    maxLength={40}
-                    placeholder="Ajay, Rehicko, etc."
-                  />
-                  <p className="mt-1 text-[11px] text-neutral-500">
-                    This is what other players see next to your messages.
-                  </p>
-
-                  {/* Name color toggle + preview */}
-                  <div className="mt-3 flex items-center justify-between rounded-xl bg-neutral-950 border border-neutral-900 px-3 py-2.5">
-                    <div>
-                      <p className="text-[11px] text-neutral-400">
-                        Name color in chat
-                      </p>
-                      <p className="text-[11px] text-neutral-500">
-                        When enabled, your main class color is used for your
-                        name. Otherwise Astrum uses the default blue.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-6 px-3 rounded-full flex items-center text-[11px] font-medium shadow-[0_0_14px_rgba(0,0,0,0.6)]"
-                        style={{
-                          backgroundColor: nameColorPreview,
-                          color:
-                            nameColorPreview === "#FFFFFF" ||
-                            nameColorPreview === "#FFF569"
-                              ? "#000000"
-                              : "#020617",
-                        }}
-                      >
-                        {displayName.trim() || "Your name"}
+                  {/* Battle.net status */}
+                  <div className="mt-4 border border-neutral-900 rounded-xl bg-black/40 px-3 py-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div>
+                        <p className="text-xs font-semibold text-neutral-200">
+                          Battle.net link
+                        </p>
+                        <p className="text-[11px] text-neutral-500">
+                          Optional. Used for Retail characters and future
+                          features.
+                        </p>
                       </div>
-                      <label className="inline-flex items-center gap-2 text-[11px] text-neutral-400">
+                      <button
+                        type="button"
+                        onClick={() => router.push("/link/bnet")}
+                        className="text-[11px] px-3 py-1 rounded-full border border-neutral-800 bg-black/40 hover:bg-neutral-900 text-neutral-300 hover:text-white transition-colors"
+                      >
+                        Manage
+                      </button>
+                    </div>
+                    <div className="text-xs text-neutral-400 flex items-center gap-2">
+                      {bnetLinked ? (
+                        <>
+                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                          Connected
+                          {bnetCharsCount != null && bnetCharsCount > 0 && (
+                            <span className="text-neutral-500">
+                              ({bnetCharsCount} Retail characters imported)
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span className="inline-block h-2 w-2 rounded-full bg-neutral-600" />
+                          Not linked yet. You can still use Astrum for TBC
+                          Classic without this.
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Classic main section */}
+                  <div className="mt-4 border-t border-neutral-900 pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="text-xs font-semibold text-neutral-200">
+                          Classic main (TBC / Classic identity)
+                        </p>
+                        <p className="text-[11px] text-neutral-500">
+                          This is the character Astrum shows when someone
+                          inspects your profile. Later it becomes &ldquo;60
+                          Horde Orc Warrior - Pagle&rdquo; style info under your
+                          name.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] text-neutral-400 mb-1">
+                          Character name
+                        </label>
                         <input
-                          type="checkbox"
-                          checked={useClassColor}
-                          onChange={(e) => setUseClassColor(e.target.checked)}
-                          className="h-3 w-3 rounded border-neutral-600 bg-black"
+                          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                          value={classicName}
+                          onChange={(e) => setClassicName(e.target.value)}
+                          placeholder="Mvp"
                         />
-                        Class color
-                      </label>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-neutral-400 mb-1">
+                          Realm
+                        </label>
+                        <select
+                          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                          value={classicRealm}
+                          onChange={(e) => setClassicRealm(e.target.value)}
+                        >
+                          <option value="">Select realm…</option>
+                          <optgroup label="Anniversary">
+                            {ANNIVERSARY_REALMS.map((realm) => (
+                              <option key={`anniv-${realm}`} value={realm}>
+                                {realm}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="MoP">
+                            {MOP_REALMS.map((realm) => (
+                              <option key={`mop-${realm}`} value={realm}>
+                                {realm}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Era">
+                            {ERA_REALMS.map((realm) => (
+                              <option key={`era-${realm}`} value={realm}>
+                                {realm}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-neutral-400 mb-1">
+                          Region
+                        </label>
+                        <select
+                          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                          value={classicRegion}
+                          onChange={(e) => setClassicRegion(e.target.value)}
+                        >
+                          <option value="US">US</option>
+                          <option value="EU">EU</option>
+                          <option value="KR">KR</option>
+                          <option value="TW">TW</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-neutral-400 mb-1">
+                          Faction
+                        </label>
+                        <select
+                          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                          value={classicFaction}
+                          onChange={(e) =>
+                            setClassicFaction(
+                              e.target.value as "Alliance" | "Horde" | ""
+                            )
+                          }
+                        >
+                          <option value="">Select faction…</option>
+                          <option value="Alliance">Alliance</option>
+                          <option value="Horde">Horde</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-neutral-400 mb-1">
+                          Race
+                        </label>
+                        <select
+                          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                          value={classicRace}
+                          onChange={(e) => setClassicRace(e.target.value)}
+                        >
+                          <option value="">Select race…</option>
+                          {RACE_OPTIONS.map((race) => (
+                            <option key={race} value={race}>
+                              {race}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-neutral-400 mb-1">
+                          Class
+                        </label>
+                        <select
+                          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                          value={classicClass}
+                          onChange={(e) => setClassicClass(e.target.value)}
+                        >
+                          <option value="">Select class…</option>
+                          {CLASS_OPTIONS.map((cls) => (
+                            <option key={cls} value={cls}>
+                              {cls}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-neutral-400 mb-1">
+                          Level (optional)
+                        </label>
+                        <input
+                          className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-emerald-400/80"
+                          value={classicLevel}
+                          onChange={(e) => setClassicLevel(e.target.value)}
+                          placeholder="70"
+                          inputMode="numeric"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1.5">
-                    About (optional)
-                  </label>
-                  <textarea
-                    className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2.5 outline-none text-sm text-neutral-50 focus:border-sky-500/80_resize-none"
-                    rows={3}
-                    value={bio}
-                    onChange={(e) => setBio(e.target.value)}
-                    maxLength={240}
-                    placeholder="Class, role, main game, or a short line about you."
-                  />
-                  <p className="mt-1 text-[11px] text-neutral-500">
-                    Used on your profile and in future overlays when
-                    someone inspects you.
-                  </p>
-                </div>
-
-                {/* Battle.net status */}
-                <div className="mt-4 border border-neutral-900 rounded-xl bg-black/40 px-3 py-3">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div>
-                      <p className="text-xs font-semibold text-neutral-200">
-                        Battle.net link
-                      </p>
-                      <p className="text-[11px] text-neutral-500">
-                        Optional. Used for Retail characters and future
-                        features.
-                      </p>
-                    </div>
+                  <div className="flex items-center gap-3 pt-4">
                     <button
-                      type="button"
-                      onClick={() => router.push("/link/bnet")}
-                      className="text-[11px] px-3 py-1 rounded-full border border-neutral-800 bg-black/40 hover:bg-neutral-900 text-neutral-300 hover:text-white transition-colors"
+                      type="submit"
+                      disabled={saving}
+                      className="px-4 py-2 rounded-full bg-white text-black text-xs font-semibold tracking-[0.16em] uppercase disabled:opacity-60"
                     >
-                      Manage
+                      {saving ? "Saving…" : "Save"}
                     </button>
-                  </div>
-                  <div className="text-xs text-neutral-400 flex items-center gap-2">
-                    {bnetLinked ? (
-                      <>
-                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                        Connected
-                        {bnetCharsCount != null && bnetCharsCount > 0 && (
-                          <span className="text-neutral-500">
-                            ({bnetCharsCount} Retail characters imported)
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <span className="inline-block h-2 w-2 rounded-full bg-neutral-600" />
-                        Not linked yet. You can still use Astrum for TBC
-                        Classic without this.
-                      </>
+                    {saved && (
+                      <span className="text-xs text-neutral-400">Saved.</span>
+                    )}
+                    {error && (
+                      <span className="text-xs text-red-400">{error}</span>
                     )}
                   </div>
-                </div>
-
-                {/* Classic main section */}
-                <div className="mt-4 border-t border-neutral-900 pt-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className="text-xs font-semibold text-neutral-200">
-                        Classic main (TBC / Classic identity)
-                      </p>
-                      <p className="text-[11px] text-neutral-500">
-                        This is the character Astrum shows when someone
-                        inspects your profile. Later it becomes
-                        &ldquo;60 Horde Orc Warrior - Pagle&rdquo; style
-                        info under your name.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">
-                        Character name
-                      </label>
-                      <input
-                        className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                        value={classicName}
-                        onChange={(e) => setClassicName(e.target.value)}
-                        placeholder="Mvp"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">
-                        Realm
-                      </label>
-                      <select
-                        className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                        value={classicRealm}
-                        onChange={(e) => setClassicRealm(e.target.value)}
-                      >
-                        <option value="">Select realm…</option>
-                        <optgroup label="Anniversary">
-                          {ANNIVERSARY_REALMS.map((realm) => (
-                            <option key={`anniv-${realm}`} value={realm}>
-                              {realm}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="MoP">
-                          {MOP_REALMS.map((realm) => (
-                            <option key={`mop-${realm}`} value={realm}>
-                              {realm}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="Era">
-                          {ERA_REALMS.map((realm) => (
-                            <option key={`era-${realm}`} value={realm}>
-                              {realm}
-                            </option>
-                          ))}
-                        </optgroup>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">
-                        Region
-                      </label>
-                      <select
-                        className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                        value={classicRegion}
-                        onChange={(e) => setClassicRegion(e.target.value)}
-                      >
-                        <option value="US">US</option>
-                        <option value="EU">EU</option>
-                        <option value="KR">KR</option>
-                        <option value="TW">TW</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">
-                        Faction
-                      </label>
-                      <select
-                        className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                        value={classicFaction}
-                        onChange={(e) =>
-                          setClassicFaction(
-                            e.target.value as "Alliance" | "Horde" | ""
-                          )
-                        }
-                      >
-                        <option value="">Select faction…</option>
-                        <option value="Alliance">Alliance</option>
-                        <option value="Horde">Horde</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">
-                        Race
-                      </label>
-                      <select
-                        className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                        value={classicRace}
-                        onChange={(e) => setClassicRace(e.target.value)}
-                      >
-                        <option value="">Select race…</option>
-                        {RACE_OPTIONS.map((race) => (
-                          <option key={race} value={race}>
-                            {race}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">
-                        Class
-                      </label>
-                      <select
-                        className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                        value={classicClass}
-                        onChange={(e) => setClassicClass(e.target.value)}
-                      >
-                        <option value="">Select class…</option>
-                        {CLASS_OPTIONS.map((cls) => (
-                          <option key={cls} value={cls}>
-                            {cls}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">
-                        Level (optional)
-                      </label>
-                      <input
-                        className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 outline-none text-sm text-neutral-50 focus:border-sky-500/80"
-                        value={classicLevel}
-                        onChange={(e) => setClassicLevel(e.target.value)}
-                        placeholder="70"
-                        inputMode="numeric"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="px-4 py-2 rounded-full bg-white text-black text-xs font-semibold tracking-[0.16em] uppercase disabled:opacity-60"
-                  >
-                    {saving ? "Saving…" : "Save"}
-                  </button>
-                  {saved && (
-                    <span className="text-xs text-neutral-400">
-                      Saved.
-                    </span>
-                  )}
-                  {error && (
-                    <span className="text-xs text-red-400">
-                      {error}
-                    </span>
-                  )}
-                </div>
-              </form>
-            </>
-          )}
+                </form>
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </RequireAuthGate>
   );
 }
