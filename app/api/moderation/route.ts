@@ -5,6 +5,30 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const CHANNEL_NAME = "global";
 
+// --- CORS setup so overlay can call this route ---
+// For alpha we allow *, since this endpoint only processes existing
+// pendingIds and doesn't rely on cookies.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function withCors(init?: ResponseInit): ResponseInit {
+  return {
+    ...(init ?? {}),
+    headers: {
+      ...(init?.headers ?? {}),
+      ...CORS_HEADERS,
+    },
+  };
+}
+
+// Preflight handler for POST /api/moderation
+export async function OPTIONS() {
+  return NextResponse.json({}, withCors());
+}
+
 // --- Environment variables (read once at module load) ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -248,7 +272,7 @@ export async function POST(req: Request) {
       );
       return NextResponse.json(
         { error: "Supabase environment not configured" },
-        { status: 500 }
+        withCors({ status: 500 })
       );
     }
 
@@ -258,7 +282,7 @@ export async function POST(req: Request) {
       );
       return NextResponse.json(
         { error: "OpenAI environment not configured" },
-        { status: 500 }
+        withCors({ status: 500 })
       );
     }
 
@@ -268,7 +292,7 @@ export async function POST(req: Request) {
     if (!pendingId) {
       return NextResponse.json(
         { error: "pendingId is required" },
-        { status: 400 }
+        withCors({ status: 400 })
       );
     }
 
@@ -283,7 +307,7 @@ export async function POST(req: Request) {
       console.error("Failed to load pending message:", fetchError);
       return NextResponse.json(
         { error: "Pending message not found" },
-        { status: 404 }
+        withCors({ status: 404 })
       );
     }
 
@@ -299,11 +323,14 @@ export async function POST(req: Request) {
         .eq("id", pending.id);
 
       if (deleteError) {
-        console.error("Failed to delete spam message from pending:", deleteError);
+        console.error(
+          "Failed to delete spam message from pending:",
+          deleteError
+        );
       }
 
       // Later we can wire this into strikes/timeouts; for now just reject.
-      return NextResponse.json({ status: "rejected" });
+      return NextResponse.json({ status: "rejected" }, withCors());
     }
 
     // --- 3) LOCAL CONTENT DECISION ---
@@ -322,25 +349,27 @@ export async function POST(req: Request) {
         console.error("Failed to delete locally rejected message:", deleteError);
       }
 
-      return NextResponse.json({ status: "rejected" });
+      return NextResponse.json({ status: "rejected" }, withCors());
     }
 
     // =======================
     // 3b) LOCAL APPROVE (NO AI)
     // =======================
     if (decision === "approve") {
-      const { error: insertError } = await supabaseAdmin.from("messages").insert({
-        channel: CHANNEL_NAME,
-        content,
-        user_id: userId,
-        // created_at handled by DB defaults
-      });
+      const { error: insertError } = await supabaseAdmin.from("messages").insert(
+        {
+          channel: CHANNEL_NAME,
+          content,
+          user_id: userId,
+          // created_at handled by DB defaults
+        }
+      );
 
       if (insertError) {
         console.error("Failed to insert locally approved message:", insertError);
         return NextResponse.json(
           { error: "Failed to approve message" },
-          { status: 500 }
+          withCors({ status: 500 })
         );
       }
 
@@ -357,7 +386,7 @@ export async function POST(req: Request) {
         );
       }
 
-      return NextResponse.json({ status: "approved" });
+      return NextResponse.json({ status: "approved" }, withCors());
     }
 
     // =======================
@@ -385,7 +414,7 @@ export async function POST(req: Request) {
         console.error("Failed to delete AI-rejected message:", deleteError);
       }
 
-      return NextResponse.json({ status: "rejected" });
+      return NextResponse.json({ status: "rejected" }, withCors());
     }
 
     // ----------------------------------------------------------------
@@ -402,7 +431,7 @@ export async function POST(req: Request) {
       console.error("Failed to insert AI-approved message:", insertError);
       return NextResponse.json(
         { error: "Failed to approve message" },
-        { status: 500 }
+        withCors({ status: 500 })
       );
     }
 
@@ -419,12 +448,12 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ status: "approved" });
+    return NextResponse.json({ status: "approved" }, withCors());
   } catch (err) {
     console.error("Moderation route error:", err);
     return NextResponse.json(
       { error: "Internal moderation error" },
-      { status: 500 }
+      withCors({ status: 500 })
     );
   }
 }
