@@ -253,7 +253,7 @@ export function UsernameMenu({
         type="button"
         onClick={handleClick}
         onContextMenu={handleOpen}
-        className="font-semibold text-inherit focus:outline-none focus:ring-1 focus:ring-sky-500/70 rounded-sm transition-colors"
+        className="font-semibold text-inherit focus:outline-none focus:ring-1 focus:ring-emerald-400/70 rounded-sm transition-colors"
       >
         {safeName}
       </button>
@@ -262,14 +262,14 @@ export function UsernameMenu({
       {menu.open && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[200px] rounded-xl border border-sky-500/40 bg-black/95 backdrop-blur-md shadow-[0_22px_60px_rgba(0,0,0,0.9)] text-xs text-neutral-100 overflow-hidden astrum-menu"
+          className="fixed z-50 min-w-[200px] rounded-xl border border-emerald-400/40 bg-black/95 backdrop-blur-md shadow-[0_22px_60px_rgba(0,0,0,0.9)] text-xs text-neutral-100 overflow-hidden astrum-menu"
           style={{
             top: menu.y + 6,
             left: menu.x + 6,
           }}
         >
           {/* Neon glow top strip */}
-          <div className="h-[2px] w-full astrum-menu-glow bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-500" />
+          <div className="h-[2px] w-full astrum-menu-glow bg-gradient-to-r from-emerald-400 via-emerald-200 to-emerald-400" />
 
           {/* Header */}
           <div className="px-3 py-2 border-b border-white/5 bg-white/[0.02] text-[11px] text-neutral-300 flex items-center justify-between">
@@ -284,7 +284,7 @@ export function UsernameMenu({
             type="button"
             onClick={handleViewProfile}
             disabled={profileLoading}
-            className="w-full text-left px-3 py-2.5 hover:bg-sky-500/15 hover:text-sky-100 flex items-center justify-between transition-colors disabled:opacity-60"
+            className="w-full text-left px-3 py-2.5 hover:bg-emerald-500/15 hover:text-emerald-100 flex items-center justify-between transition-colors disabled:opacity-60"
           >
             <span>{profileLoading ? "Opening…" : "View Profile"}</span>
             <span className="text-[9px] text-neutral-500">ENTER</span>

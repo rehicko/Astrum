@@ -7,9 +7,9 @@ export default function HomePage() {
       <div className="relative w-full max-w-6xl">
         {/* Background glow */}
         <div
-  className="pointer-events-none absolute -inset-[80px] -z-10
+          className="pointer-events-none absolute -inset-[80px] -z-10
   bg-[radial-gradient(circle_at_32%_24%,_rgba(16,185,129,0.03),_transparent_68%),radial-gradient(circle_at_78%_110%,_rgba(16,185,129,0.02),_transparent_80%)]"
-/>
+        />
         <div className="grid items-start gap-10 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)]">
           {/* LEFT: Hero + alpha status */}
           <section className="space-y-8">
@@ -156,7 +156,7 @@ export default function HomePage() {
               </div>
 
               <Link
-                href="/overlay"
+                href="/download"
                 className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-500/70 bg-gradient-to-r from-transparent via-transparent to-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300 transition hover:border-emerald-400 hover:text-emerald-200"
               >
                 Learn about the overlay

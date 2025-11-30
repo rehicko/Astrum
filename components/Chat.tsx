@@ -269,6 +269,60 @@ export default function Chat({ channel }: Props) {
     return () => clearTimeout(timer);
   }, [levelUpText]);
 
+  // 🌐 Web heartbeat — track who's online per channel
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    let cancelled = false;
+
+    const ping = async () => {
+      if (cancelled) return;
+      console.log("[heartbeat] ping start", {
+        userId: currentUserId,
+        channel,
+      });
+
+      const { data, error } = await supabase
+        .from("user_heartbeat")
+        .upsert(
+          {
+            user_id: currentUserId,
+            client_type: "web",
+            channel: channel.toLowerCase(),
+            source: "web",
+            last_ping_at: new Date().toISOString(),
+          },
+          {
+            onConflict: "user_id,client_type,channel,source",
+          }
+        )
+        .select("id, user_id, channel, last_ping_at")
+        .maybeSingle();
+
+      if (error) {
+        console.warn(
+          "[heartbeat] upsert error",
+          error?.message,
+          error?.code,
+          error
+        );
+      } else {
+        console.log("[heartbeat] upsert ok", data);
+      }
+    };
+
+    // hit once immediately
+    void ping();
+
+    // then every 45s while component + user are alive
+    const id = window.setInterval(ping, 45_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [supabase, currentUserId, channel]);
+
   const feedSelect =
     "id, user_id, channel, content, created_at, display_name, classic_name, classic_realm, classic_region, classic_faction, classic_class, classic_race, classic_level, joined_at, class_color_hex, use_class_color";
 
@@ -601,7 +655,7 @@ export default function Chat({ channel }: Props) {
         <div
           ref={listRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto astrum-scroll px-4 pt-3 pb-20 space-y-2"
+          className="h-full overflow-y-auto astrum-scroll px-4 pt-3 pb-6 space-y-2"
         >
           {loading ? (
             <div className="text-sm text-neutral-400">Loading messages…</div>
@@ -702,7 +756,7 @@ export default function Chat({ channel }: Props) {
               setAtBottom(true);
               lastDistanceFromBottomRef.current = 0;
             }}
-            className="absolute right-6 bottom-24 px-3 py-1.5 rounded-full bg-sky-500/90 hover:bg-sky-400 text-[11px] font-medium text-black shadow-[0_8px_30px_rgba(0,0,0,0.7)]"
+            className="absolute right-6 bottom-16 px-3 py-1.5 rounded-full bg-sky-500/90 hover:bg-sky-400 text-[11px] font-medium text-black shadow-[0_8px_30px_rgba(0,0,0,0.7)]"
           >
             New messages ↓
           </button>

@@ -204,6 +204,7 @@ export default function ProfileSettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null);
 
   // Classic main fields
   const [classicName, setClassicName] = useState("");
@@ -410,6 +411,35 @@ export default function ProfileSettingsPage() {
     setSaving(true);
     setSaved(false);
     setError(null);
+    setDisplayNameError(null);
+
+    const trimmedDisplayName = displayName.trim();
+    const hasDisplayNameChange =
+      trimmedDisplayName !== (profile.display_name ?? "");
+
+    // If display name changed, go through the strict RPC that enforces
+    // uniqueness + 14-day cooldown.
+    if (hasDisplayNameChange) {
+      if (!trimmedDisplayName) {
+        setDisplayNameError("Display name cannot be empty.");
+        setSaving(false);
+        return;
+      }
+
+      const { error: nameError } = await supabase.rpc(
+        "change_display_name",
+        { new_name: trimmedDisplayName }
+      );
+
+      if (nameError) {
+        console.error("change_display_name error:", nameError);
+        setDisplayNameError(
+          "Could not update your name. It might already be taken, or you changed it recently. Display names are unique and can only be changed once every 14 days."
+        );
+        setSaving(false);
+        return;
+      }
+    }
 
     const levelNumber =
       classicLevel.trim() === "" ? null : Number.parseInt(classicLevel, 10);
@@ -424,7 +454,7 @@ export default function ProfileSettingsPage() {
     const { error } = await supabase.from("profiles").upsert(
       {
         id: profile.id,
-        display_name: displayName.trim() || null,
+        display_name: trimmedDisplayName || null,
         bio: bio.trim() || null,
         classic_name: classicName.trim() || null,
         classic_realm: classicRealm.trim() || null,
@@ -454,7 +484,7 @@ export default function ProfileSettingsPage() {
       prev
         ? {
             ...prev,
-            display_name: displayName.trim() || null,
+            display_name: trimmedDisplayName || null,
             bio: bio.trim() || null,
             classic_name: classicName.trim() || null,
             classic_realm: classicRealm.trim() || null,
@@ -638,8 +668,14 @@ export default function ProfileSettingsPage() {
                       placeholder="Ajay, Rehicko, etc."
                     />
                     <p className="mt-1 text-[11px] text-neutral-500">
-                      This is what other players see next to your messages.
+                      Your public name in Astrum. Display names are unique and
+                      can only be changed once every 14 days.
                     </p>
+                    {displayNameError && (
+                      <p className="mt-1 text-[11px] text-red-400">
+                        {displayNameError}
+                      </p>
+                    )}
 
                     {/* Name color toggle + preview */}
                     <div className="mt-3 flex items-center justify-between rounded-xl bg-neutral-950 border border-neutral-900 px-3 py-2.5">

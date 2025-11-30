@@ -68,7 +68,7 @@ export function AppHeaderClient() {
     <header className="sticky top-0 z-40 w-full border-b border-white/10 bg-black/80 backdrop-blur">
       <div className="flex w-full items-center justify-between px-4 py-4 md:px-6">
         {/* Logo + brand */}
-        <Link href="/crossroads/global" className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3">
           {/* Orbital ring logo */}
           <div className="relative flex h-7 w-7 items-center justify-center rounded-full bg-black">
             {/* Ring */}
@@ -115,7 +115,14 @@ export function AppHeaderClient() {
             FAQ
           </Link>
 
-          {/* Sign in / Sign out button (from HeaderAuth) */}
+          <Link
+            href="/download"
+            className="transition-colors hover:text-white"
+          >
+            Download
+          </Link>
+
+          {/* Sign in / Sign out */}
           <HeaderAuth />
         </nav>
       </div>

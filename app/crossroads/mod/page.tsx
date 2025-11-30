@@ -34,11 +34,31 @@ type AuthState = "checking" | "unauth" | "not_mod" | "ok";
 type AiAction = "approve" | "reject" | "escalate";
 type ReportAction = "resolve" | "strike";
 
+// Presence view rows
+type PresenceSummary = {
+  totalOnline: number;
+  webOnline: number;
+  overlayOnline: number;
+};
+
+type ChannelPresenceRow = {
+  channel: string | null;
+  online: number | null;
+};
+
 export default function ModPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Presence + system status
+  const [presenceLoading, setPresenceLoading] = useState(true);
+  const [presenceError, setPresenceError] = useState<string | null>(null);
+  const [presence, setPresence] = useState<PresenceSummary | null>(null);
+  const [channelPresence, setChannelPresence] = useState<ChannelPresenceRow[]>(
+    []
+  );
 
   // AI gate queue
   const [aiLoading, setAiLoading] = useState(true);
@@ -57,6 +77,82 @@ export default function ModPage() {
   >(null);
 
   // ------------ LOADERS ------------
+
+  const loadPresence = useCallback(async () => {
+    setPresenceLoading(true);
+    setPresenceError(null);
+
+    try {
+      // 1) Overall presence (total / web / overlay)
+      const { data: rawPresence, error: presenceErr } = await supabase
+        .from("astrum_presence_now")
+        .select("*")
+        .maybeSingle();
+
+      if (presenceErr) {
+        console.error("ModPage: error loading astrum_presence_now", presenceErr);
+        throw new Error(
+          presenceErr.message ?? "Unable to load presence summary."
+        );
+      }
+
+      const anyPresence = rawPresence as any;
+
+      const totalOnline: number =
+        typeof anyPresence?.total_online === "number"
+          ? anyPresence.total_online
+          : typeof anyPresence?.total === "number"
+          ? anyPresence.total
+          : typeof anyPresence?.online === "number"
+          ? anyPresence.online
+          : 0;
+
+      const webOnline: number =
+        typeof anyPresence?.web_online === "number"
+          ? anyPresence.web_online
+          : typeof anyPresence?.web === "number"
+          ? anyPresence.web
+          : 0;
+
+      const overlayOnline: number =
+        typeof anyPresence?.overlay_online === "number"
+          ? anyPresence.overlay_online
+          : typeof anyPresence?.overlay === "number"
+          ? anyPresence.overlay
+          : 0;
+
+      setPresence({
+        totalOnline,
+        webOnline,
+        overlayOnline,
+      });
+
+      // 2) Per-channel presence
+      const { data: channelRows, error: channelErr } = await supabase
+        .from("astrum_channel_presence_now")
+        .select("*");
+
+      if (channelErr) {
+        console.error(
+          "ModPage: error loading astrum_channel_presence_now",
+          channelErr
+        );
+        throw new Error(
+          channelErr.message ?? "Unable to load channel presence."
+        );
+      }
+
+      setChannelPresence((channelRows as ChannelPresenceRow[]) ?? []);
+    } catch (err: any) {
+      setPresenceError(
+        err?.message ?? "Unable to load presence / channel activity."
+      );
+      setPresence(null);
+      setChannelPresence([]);
+    } finally {
+      setPresenceLoading(false);
+    }
+  }, [supabase]);
 
   const loadAiQueue = useCallback(async () => {
     setAiLoading(true);
@@ -131,6 +227,7 @@ export default function ModPage() {
         setAuthState("unauth");
         setAiLoading(false);
         setReportsLoading(false);
+        setPresenceLoading(false);
         return;
       }
 
@@ -139,6 +236,7 @@ export default function ModPage() {
         setAuthState("unauth");
         setAiLoading(false);
         setReportsLoading(false);
+        setPresenceLoading(false);
         return;
       }
 
@@ -158,6 +256,7 @@ export default function ModPage() {
         setAuthState("not_mod");
         setAiLoading(false);
         setReportsLoading(false);
+        setPresenceLoading(false);
         return;
       }
 
@@ -165,13 +264,14 @@ export default function ModPage() {
         setAuthState("not_mod");
         setAiLoading(false);
         setReportsLoading(false);
+        setPresenceLoading(false);
         return;
       }
 
       // All good – user is a moderator
       setAuthState("ok");
 
-      // Load both queues in parallel
+      // Load queues in parallel. Presence is handled by its own effect below.
       await Promise.all([loadAiQueue(), loadReportQueue()]);
     })();
 
@@ -179,6 +279,27 @@ export default function ModPage() {
       cancelled = true;
     };
   }, [supabase, loadAiQueue, loadReportQueue]);
+
+  // Periodically refresh presence (only when auth OK)
+  useEffect(() => {
+    if (authState !== "ok") return;
+
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled) return;
+      await loadPresence();
+    };
+
+    void tick(); // initial load
+
+    const id = window.setInterval(tick, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [authState, loadPresence]);
 
   // ------------ AI GATE ACTIONS ------------
 
@@ -237,7 +358,6 @@ export default function ModPage() {
 
     try {
       if (action === "resolve") {
-        // Just mark report as reviewed / resolved
         const { error } = await supabase.rpc("resolve_message_report", {
           p_report_id: report.report_id,
           p_resolution: "reviewed",
@@ -252,7 +372,6 @@ export default function ModPage() {
           );
         }
       } else if (action === "strike") {
-        // Apply a strike from this report (ties into your existing strike → temp-ban system)
         const { error } = await supabase.rpc("issue_strike_from_report", {
           p_report_id: report.report_id,
           p_reason: "Moderator strike from report queue",
@@ -262,7 +381,6 @@ export default function ModPage() {
           console.error("ModPage: issue_strike_from_report error", error);
           setReportsError(error.message ?? "Failed to apply strike.");
         } else {
-          // The helper function also resolves the report; remove from UI.
           setReports((prev) =>
             prev.filter((r) => r.report_id !== report.report_id)
           );
@@ -319,7 +437,46 @@ export default function ModPage() {
     );
   }
 
-  // ------------ MAIN MOD DASHBOARD (authState === "ok") ------------
+  // ------------ DERIVED PRESENCE DISPLAY ------------
+
+  const globalChannelRow =
+    channelPresence.find(
+      (row) => (row.channel ?? "").toLowerCase() === "global"
+    ) ?? null;
+
+  const globalOnlineDisplay =
+    presenceLoading && !presence
+      ? "—"
+      : globalChannelRow?.online ?? presence?.totalOnline ?? 0;
+
+  const overlayOnlineDisplay =
+    presenceLoading && !presence
+      ? "—"
+      : presence
+      ? presence.overlayOnline
+      : 0;
+
+  const webOnlineDisplay =
+    presenceLoading && !presence
+      ? "—"
+      : presence
+      ? presence.webOnline
+      : 0;
+
+  const channelActivityDisplay =
+    presenceLoading && !channelPresence.length
+      ? "—"
+      : channelPresence.length
+      ? channelPresence
+          .map((row) => {
+            const slug = (row.channel ?? "?").toLowerCase();
+            const count = row.online ?? 0;
+            return `${slug}: ${count}`;
+          })
+          .join("  •  ")
+      : "No active channels";
+
+  // ------------ MAIN MOD DASHBOARD ------------
 
   return (
     <div className="min-h-screen bg-black text-neutral-100">
@@ -338,6 +495,48 @@ export default function ModPage() {
             escalate anything that needs a human second look.
           </p>
         </header>
+
+        {/* PRESENCE & SYSTEM STATUS */}
+        <section className="rounded-xl border border-emerald-500/30 bg-black/40 p-4">
+          <h2 className="text-sm font-semibold text-emerald-400 mb-2">
+            Presence & System Status
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-neutral-300">
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-3">
+              <p className="text-neutral-400 text-[11px] uppercase tracking-wide mb-1">
+                Global Online
+              </p>
+              <p className="font-mono text-neutral-100 text-sm">
+                {globalOnlineDisplay}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-3">
+              <p className="text-neutral-400 text-[11px] uppercase tracking-wide mb-1">
+                Overlay vs Web
+              </p>
+              <p className="font-mono text-neutral-100 text-sm">
+                {overlayOnlineDisplay} / {webOnlineDisplay}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-3">
+              <p className="text-neutral-400 text-[11px] uppercase tracking-wide mb-1">
+                Channel Activity
+              </p>
+              <p className="font-mono text-neutral-100 text-[11px] leading-relaxed">
+                {channelActivityDisplay}
+              </p>
+            </div>
+          </div>
+
+          {presenceError && (
+            <p className="mt-2 text-[11px] text-red-400">
+              {presenceError}
+            </p>
+          )}
+        </section>
 
         {/* PLAYER REPORTS SECTION */}
         <section className="space-y-3">
@@ -391,7 +590,7 @@ export default function ModPage() {
                       </span>
                       <span className="text-xs text-neutral-500">
                         By{" "}
-                        <span className="text-neutral-200">
+                          <span className="text-neutral-200">
                           {r.reporter_display_name || "Unknown"}
                         </span>{" "}
                         at{" "}
@@ -479,7 +678,6 @@ export default function ModPage() {
                 public chat. Approve, reject, or escalate.
               </p>
             </div>
-            {/* Simple text instead of green oval */}
             <div className="text-right text-[11px] text-neutral-500">
               {aiLoading
                 ? "Loading AI queue…"

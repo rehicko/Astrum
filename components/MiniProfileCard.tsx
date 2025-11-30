@@ -42,7 +42,9 @@ function formatJoined(joinedAt: string | null) {
 }
 
 // Shared title logic (same idea as public profile)
-function getDisplayTitleFromData(data: MiniProfileCardProps["data"]): string | null {
+function getDisplayTitleFromData(
+  data: MiniProfileCardProps["data"]
+): string | null {
   if (data.showTitle === false) return null;
 
   const explicit =
@@ -89,7 +91,10 @@ export function MiniProfileCard({
     return pieces.join(" ");
   }, [data]);
 
-  const effectiveTitle = useMemo(() => getDisplayTitleFromData(data), [data]);
+  const effectiveTitle = useMemo(
+    () => getDisplayTitleFromData(data),
+    [data]
+  );
   const level = data.level;
   const xp = data.xp;
 
@@ -126,11 +131,11 @@ export function MiniProfileCard({
       <div
         ref={cardRef}
         onClick={(e) => e.stopPropagation()}
-        className="absolute min-w-[280px] max-w-[360px] rounded-2xl border border-sky-500/50 bg-black/95 backdrop-blur-md shadow-[0_24px_80px_rgba(0,0,0,0.95)] text-xs text-neutral-100 overflow-hidden"
+        className="absolute min-w-[280px] max-w-[360px] rounded-2xl border border-emerald-400/50 bg-black/95 backdrop-blur-md shadow-[0_24px_80px_rgba(0,0,0,0.95)] text-xs text-neutral-100 overflow-hidden"
         style={{ top, left }}
       >
         {/* Neon strip */}
-        <div className="h-[2px] w-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-500" />
+        <div className="h-[2px] w-full bg-gradient-to-r from-emerald-400 via-emerald-200 to-emerald-400" />
 
         {/* Header */}
         <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02] flex items-center justify-between">
@@ -139,17 +144,23 @@ export function MiniProfileCard({
               {data.displayName}
             </span>
             {/* Rank line */}
-            {(typeof level === "number" || effectiveTitle || typeof xp === "number") && (
+            {(typeof level === "number" ||
+              effectiveTitle ||
+              typeof xp === "number") && (
               <span className="mt-0.5 text-[11px] text-neutral-400 flex flex-wrap items-center gap-x-1 gap-y-0.5">
                 {typeof level === "number" && (
-                  <span className="text-neutral-300">Level {level}</span>
+                  <span className="text-neutral-300">
+                    Level {level}
+                  </span>
                 )}
                 {effectiveTitle && (
                   <>
                     {typeof level === "number" && (
                       <span className="text-neutral-700">•</span>
                     )}
-                    <span className="text-neutral-100">{effectiveTitle}</span>
+                    <span className="text-neutral-100">
+                      {effectiveTitle}
+                    </span>
                   </>
                 )}
                 {typeof xp === "number" && (
@@ -157,14 +168,16 @@ export function MiniProfileCard({
                     {(typeof level === "number" || effectiveTitle) && (
                       <span className="text-neutral-700">•</span>
                     )}
-                    <span className="text-neutral-500">{xp} XP</span>
+                    <span className="text-neutral-500">
+                      {xp} XP
+                    </span>
                   </>
                 )}
               </span>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-[9px] uppercase tracking-[0.18em] text-sky-400/80">
+            <span className="text-[9px] uppercase tracking-[0.18em] text-emerald-400/80">
               Astrum
             </span>
             <button
