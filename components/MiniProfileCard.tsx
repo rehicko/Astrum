@@ -120,9 +120,32 @@ export function MiniProfileCard({
     onClose();
   };
 
-  // Position card relative to click
-  const top = data.anchorY + 8;
-  const left = data.anchorX + 8;
+  // Position card relative to click, clamped to viewport so it never clips
+  let top = data.anchorY + 8;
+  let left = data.anchorX + 8;
+
+  if (typeof window !== "undefined") {
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const approxWidth = 360; // matches max-w-[360px]
+    const approxHeight = 320; // generous estimate for full card height
+    const padding = 12;
+
+    // Clamp horizontally
+    if (left + approxWidth + padding > viewportWidth) {
+      left = Math.max(padding, viewportWidth - approxWidth - padding);
+    } else {
+      left = Math.max(padding, left);
+    }
+
+    // Clamp vertically
+    if (top + approxHeight + padding > viewportHeight) {
+      top = Math.max(padding, viewportHeight - approxHeight - padding);
+    } else {
+      top = Math.max(padding, top);
+    }
+  }
 
   const content = (
     // 🔹 Full-screen backdrop that closes on click
@@ -149,9 +172,7 @@ export function MiniProfileCard({
               typeof xp === "number") && (
               <span className="mt-0.5 text-[11px] text-neutral-400 flex flex-wrap items-center gap-x-1 gap-y-0.5">
                 {typeof level === "number" && (
-                  <span className="text-neutral-300">
-                    Level {level}
-                  </span>
+                  <span className="text-neutral-300">Level {level}</span>
                 )}
                 {effectiveTitle && (
                   <>
@@ -168,16 +189,14 @@ export function MiniProfileCard({
                     {(typeof level === "number" || effectiveTitle) && (
                       <span className="text-neutral-700">•</span>
                     )}
-                    <span className="text-neutral-500">
-                      {xp} XP
-                    </span>
+                    <span className="text-neutral-500">{xp} XP</span>
                   </>
                 )}
               </span>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-[9px] uppercase tracking-[0.18em] text-emerald-400/80">
+            <span className="text-[9px] uppercase tracking-[0.18em] text-sky-400/80">
               Astrum
             </span>
             <button

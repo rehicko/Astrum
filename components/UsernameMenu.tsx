@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { useProfileCard } from "@/components/ProfileCardProvider";
+import { createPortal } from "react-dom";
 
 type UsernameMenuProps = {
   name: string | null;
@@ -55,6 +56,11 @@ export function UsernameMenu({
     y: 0,
   });
 
+  // Clamped screen position for the floating menu
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>(
+    { top: 0, left: 0 }
+  );
+
   const [reporting, setReporting] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -67,11 +73,40 @@ export function UsernameMenu({
     e.preventDefault();
     e.stopPropagation();
 
+    const baseX = e.clientX;
+    const baseY = e.clientY;
+
+    // Rough size of the menu (height is the important one).
+    // Make it a bit larger than reality so we’re safe.
+    const approxWidth = 260;
+    const approxHeight = 320;
+    const padding = 8;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = baseX + 6;
+    let top = baseY + 6;
+
+    // Clamp horizontally
+    if (left + approxWidth + padding > viewportWidth) {
+      left = Math.max(padding, viewportWidth - approxWidth - padding);
+    }
+    if (left < padding) left = padding;
+
+    // Clamp vertically
+    if (top + approxHeight + padding > viewportHeight) {
+      top = Math.max(padding, viewportHeight - approxHeight - padding);
+    }
+    if (top < padding) top = padding;
+
     setMenu({
       open: true,
-      x: e.clientX,
-      y: e.clientY,
+      x: baseX,
+      y: baseY,
     });
+
+    setMenuPosition({ top, left });
   };
 
   // Trackpad-friendly: left-click also opens menu
@@ -259,88 +294,90 @@ export function UsernameMenu({
       </button>
 
       {/* Floating menu */}
-      {menu.open && (
-        <div
-          ref={menuRef}
-          className="fixed z-50 min-w-[200px] rounded-xl border border-emerald-400/40 bg-black/95 backdrop-blur-md shadow-[0_22px_60px_rgba(0,0,0,0.9)] text-xs text-neutral-100 overflow-hidden astrum-menu"
-          style={{
-            top: menu.y + 6,
-            left: menu.x + 6,
-          }}
-        >
-          {/* Neon glow top strip */}
-          <div className="h-[2px] w-full astrum-menu-glow bg-gradient-to-r from-emerald-400 via-emerald-200 to-emerald-400" />
-
-          {/* Header */}
-          <div className="px-3 py-2 border-b border-white/5 bg-white/[0.02] text-[11px] text-neutral-300 flex items-center justify-between">
-            <span className="truncate">{safeName}</span>
-            <span className="text-[9px] uppercase tracking-[0.18em] text-neutral-500">
-              Astrum
-            </span>
-          </div>
-
-          {/* Items */}
-          <button
-            type="button"
-            onClick={handleViewProfile}
-            disabled={profileLoading}
-            className="w-full text-left px-3 py-2.5 hover:bg-emerald-500/15 hover:text-emerald-100 flex items-center justify-between transition-colors disabled:opacity-60"
+      {menu.open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-50 min-w-[200px] rounded-xl border border-emerald-400/40 bg-black/95 backdrop-blur-md shadow-[0_22px_60px_rgba(0,0,0,0.9)] text-xs text-neutral-100 overflow-hidden astrum-menu"
+            style={{
+              top: menuPosition.top,
+              left: menuPosition.left,
+            }}
           >
-            <span>{profileLoading ? "Opening…" : "View Profile"}</span>
-            <span className="text-[9px] text-neutral-500">ENTER</span>
-          </button>
+            {/* Neon glow top strip */}
+            <div className="h-[2px] w-full astrum-menu-glow bg-gradient-to-r from-emerald-400 via-emerald-200 to-emerald-400" />
 
-          <button
-            type="button"
-            disabled
-            onClick={handleAddFriend}
-            className="w-full text-left px-3 py-2.5 text-neutral-500 hover:bg-white/5 cursor-not-allowed flex items-center justify-between"
-          >
-            <span>Add Friend (soon)</span>
-            <span className="text-[9px] uppercase tracking-[0.16em]">
-              LOCKED
-            </span>
-          </button>
+            {/* Header */}
+            <div className="px-3 py-2 border-b border-white/5 bg-white/[0.02] text-[11px] text-neutral-300 flex items-center justify-between">
+              <span className="truncate">{safeName}</span>
+              <span className="text-[9px] uppercase tracking-[0.18em] text-neutral-500">
+                Astrum
+              </span>
+            </div>
 
-          <button
-            type="button"
-            disabled
-            onClick={handleWhisper}
-            className="w-full text-left px-3 py-2.5 text-neutral-500 hover:bg-white/5 cursor-not-allowed flex items-center justify-between"
-          >
-            <span>Whisper (soon)</span>
-            <span className="text-[9px] uppercase tracking-[0.16em]">
-              LOCKED
-            </span>
-          </button>
-
-          {showBlockItem && (
+            {/* Items */}
             <button
               type="button"
-              onClick={handleToggleBlock}
-              className="w-full text-left px-3 py-2.5 hover:bg-white/5 flex items-center justify-between transition-colors"
+              onClick={handleViewProfile}
+              disabled={profileLoading}
+              className="w-full text-left px-3 py-2.5 hover:bg-emerald-500/15 hover:text-emerald-100 flex items-center justify-between transition-colors disabled:opacity-60"
             >
-              <span>{isBlocked ? "Unblock user" : "Block user"}</span>
-              <span className="text-[9px] uppercase tracking-[0.16em] text-neutral-500">
-                MUTE
+              <span>{profileLoading ? "Opening…" : "View Profile"}</span>
+              <span className="text-[9px] text-neutral-500">ENTER</span>
+            </button>
+
+            <button
+              type="button"
+              disabled
+              onClick={handleAddFriend}
+              className="w-full text-left px-3 py-2.5 text-neutral-500 hover:bg-white/5 cursor-not-allowed flex items-center justify-between"
+            >
+              <span>Add Friend (soon)</span>
+              <span className="text-[9px] uppercase tracking-[0.16em]">
+                LOCKED
               </span>
             </button>
-          )}
 
-          <div className="border-t border-white/5 mt-1" />
+            <button
+              type="button"
+              disabled
+              onClick={handleWhisper}
+              className="w-full text-left px-3 py-2.5 text-neutral-500 hover:bg-white/5 cursor-not-allowed flex items-center justify-between"
+            >
+              <span>Whisper (soon)</span>
+              <span className="text-[9px] uppercase tracking-[0.16em]">
+                LOCKED
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={handleReport}
-            className="w-full text-left px-3 py-2.5 hover:bg-red-900/40 text-red-300 flex items-center justify-between transition-colors"
-          >
-            <span>{reporting ? "Reporting…" : "Report"}</span>
-            <span className="text-[9px] uppercase tracking-[0.16em] text-red-400/90">
-              ALERT
-            </span>
-          </button>
-        </div>
-      )}
+            {showBlockItem && (
+              <button
+                type="button"
+                onClick={handleToggleBlock}
+                className="w-full text-left px-3 py-2.5 hover:bg-white/5 flex items-center justify-between transition-colors"
+              >
+                <span>{isBlocked ? "Unblock user" : "Block user"}</span>
+                <span className="text-[9px] uppercase tracking-[0.16em] text-neutral-500">
+                  MUTE
+                </span>
+              </button>
+            )}
+
+            <div className="border-t border-white/5 mt-1" />
+
+            <button
+              type="button"
+              onClick={handleReport}
+              className="w-full text-left px-3 py-2.5 hover:bg-red-900/40 text-red-300 flex items-center justify-between transition-colors"
+            >
+              <span>{reporting ? "Reporting…" : "Report"}</span>
+              <span className="text-[9px] uppercase tracking-[0.16em] text-red-400/90">
+                ALERT
+              </span>
+            </button>
+          </div>,
+          document.body
+        )}
     </>
   );
 }
