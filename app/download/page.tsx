@@ -21,17 +21,17 @@ export default function DownloadPage() {
             </h1>
 
             <p className="mt-4 max-w-xl text-sm text-neutral-300 md:text-[15px]">
-              Run Astrum on top of your game so chat is always in
-              view. One identity, one account — your profile, reputation, and
-              overlay chat all live under the same login as the web.
+              Run Astrum on top of your game so chat is always in view. One
+              identity, one account — your profile, reputation, and overlay chat
+              all live under the same login as the web.
             </p>
 
             <p className="mt-4 max-w-xl text-xs text-neutral-500">
               The 0.1 alpha ships first for{" "}
               <span className="text-emerald-300">macOS</span> with a{" "}
               <span className="text-neutral-200">Windows</span> build close
-              behind. While we package the installers, you can still use
-              Chat in the browser and keep your progress.
+              behind. While we package the installers, you can still use Chat in
+              the browser and keep your progress.
             </p>
 
             {/* Small status strip */}
@@ -140,17 +140,16 @@ export default function DownloadPage() {
                   </div>
                 </div>
 
-                {/* CTA */}
-                <button
-                  type="button"
-                  disabled
-                  className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-emerald-500 text-[12px] font-semibold tracking-[0.18em] uppercase text-black py-2.5 disabled:cursor-not-allowed disabled:opacity-80 hover:bg-emerald-400 transition-colors"
+                {/* CTA – real download link */}
+                <Link
+                  href="/downloads/astrum-overlay_0.1.0_aarch64.dmg"
+                  className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-emerald-500 text-[12px] font-semibold tracking-[0.18em] uppercase text-black py-2.5 hover:bg-emerald-400 transition-colors"
                 >
                   Download for macOS
                   <span className="ml-2 text-[10px] font-normal tracking-[0.18em] text-emerald-950/80">
-                    Coming soon
+                    v0.1.0
                   </span>
-                </button>
+                </Link>
 
                 <p className="mt-2 text-[11px] text-neutral-500">
                   First alpha build targets macOS Sonoma+ in fullscreen-windowed
